@@ -1,8 +1,8 @@
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 
-export default function Home() {
+export default function DashboardPage() {
   return(
-    <Button variant={'destructive'} >Click Me</Button>
+    <p>Dashboard page</p>
   )
 }
