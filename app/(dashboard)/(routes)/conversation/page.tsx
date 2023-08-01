@@ -6,12 +6,18 @@ import { useForm } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form";
-
+import axios from "axios";
 import { formSchema } from "./constants";
 import Heading from "@/components/Heading";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import { ChatCompletionRequestMessage } from "openai";
+import { useState } from "react";
+import Empty from "@/components/Empty";
 
 const ConversationPage = () => {
+  const router = useRouter();
+  const [messages, setMessages] = useState<ChatCompletionRequestMessage[]>([]);
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -23,6 +29,26 @@ const ConversationPage = () => {
 
   const onSubmitFOrm = async (value: z.infer<typeof formSchema>) => {
     console.log(value);
+    try {
+      const userMessage: ChatCompletionRequestMessage = {
+        role: "user",
+        content: value.prompt,
+      };
+
+      const newMessages = [...messages, userMessage];
+      const response = await axios.post("/api/conversation", {
+        messages: newMessages,
+      });
+      setMessages((current) => {
+        return [...current, userMessage, response.data];
+      });
+      form.reset();
+    } catch (error: any) {
+      //TODO:open pro model
+      console.log(error);
+    } finally {
+      router.refresh();
+    }
   };
 
   return (
@@ -58,16 +84,23 @@ const ConversationPage = () => {
                   );
                 }}
               />
-              <Button className="col-span-12 lg:col-span-2 w-full"
-                disabled={isLoading}
-              >
+              <Button
+                className="col-span-12 lg:col-span-2 w-full"
+                disabled={isLoading}>
                 Generate
               </Button>
             </form>
           </Form>
         </div>
-        <div className="space-y-4 mt-4" >
-            Messages Content
+        <div className="space-y-4 mt-4">
+          {messages.length === 0 && !isLoading && <div>
+              <Empty/>
+            </div>}
+          <div className="flex flex-col-reverse gap-y-4 ">
+            {messages.map((message, index) => {
+              return <div key={index}>{message.content}</div>;
+            })}
+          </div>
         </div>
       </div>
     </div>
