@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { ChatCompletionRequestMessage } from "openai";
 import { useState } from "react";
 import Empty from "@/components/Empty";
+import Loader from "@/components/Loader";
 
 const ConversationPage = () => {
   const router = useRouter();
@@ -93,8 +94,11 @@ const ConversationPage = () => {
           </Form>
         </div>
         <div className="space-y-4 mt-4">
+          {isLoading && (<div className="p-8 rounded-full w-full flex items-center justify-center bg-muted" >
+            <Loader/>
+          </div>)}
           {messages.length === 0 && !isLoading && <div>
-              <Empty/>
+              <Empty label="No Conversation Started" />
             </div>}
           <div className="flex flex-col-reverse gap-y-4 ">
             {messages.map((message, index) => {
