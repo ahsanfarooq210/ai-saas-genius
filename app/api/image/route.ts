@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   try {
     const userId = auth();
     const body = await req.json();
-    const { message } = body;
+    const { prompt,amount=1,resolution='512x512' } = body;
     if (!userId) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
@@ -23,16 +23,25 @@ export async function POST(req: Request) {
       });
     }
 
-    if (!message) {
-      return new NextResponse("Messages are tequired", { status: 400 });
+    if (!prompt) {
+      return new NextResponse("prompt is required", { status: 400 });
     }
-    const resposne = await openai.createChatCompletion({
-      model: "gpt-3.5-turbo",
-      messages: message,
+
+    if (!amount) {
+      return new NextResponse("amount is required", { status: 400 });
+    }
+
+    if (!resolution) {
+      return new NextResponse("resolution is required", { status: 400 });
+    }
+    const resposne = await openai.createImage({
+      prompt:prompt,
+      n:parseInt(amount,10),
+      size:resolution
     });
-    return NextResponse.json(resposne.data.choices[0].message);
+    return NextResponse.json(resposne.data.data);
   } catch (error) {
-    console.log("[CONVERSATION_ERROR]", error);
+    console.log("[IMAGE_ERROR]", error);
     return new NextResponse("Internal Error", { status: 500 });
   }
 }
