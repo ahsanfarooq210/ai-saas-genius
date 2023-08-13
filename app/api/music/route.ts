@@ -1,38 +1,35 @@
 import { Configuration, OpenAIApi } from "openai";
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs";
+import Replicate from "replicate";
 
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY,
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN || "",
 });
-
-const openai = new OpenAIApi(configuration);
 
 export async function POST(req: Request) {
   try {
     const userId = auth();
     const body = await req.json();
-    const { message } = body;
+    const { prompt } = body;
     if (!userId) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
 
-    if (!configuration.apiKey) {
-      return new NextResponse("Open AI API key is not configured", {
-        status: 500,
-      });
+    if (!prompt) {
+      return new NextResponse("Prompt is tequired", { status: 400 });
     }
-
-    if (!message) {
-      return new NextResponse("Messages are tequired", { status: 400 });
-    }
-    const resposne = await openai.createChatCompletion({
-      model: "gpt-3.5-turbo",
-      messages: message,
-    });
-    return NextResponse.json(resposne.data.choices[0].message);
+    const response = await replicate.run(
+      "riffusion/riffusion:8cf61ea6c56afd61d8f5b9ffd14d7c216c0a93844ce2d82ac1c9ecc9c7f24e05",
+      {
+        input: {
+          prompt_a: prompt,
+        },
+      }
+    );
+    return NextResponse.json(response);
   } catch (error) {
-    console.log("[CONVERSATION_ERROR]", error);
+    console.log("[MUSIC_ERROR]", error);
     return new NextResponse("Internal Error", { status: 500 });
   }
 }
