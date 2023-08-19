@@ -118,11 +118,8 @@ const ConversationPage = () => {
                       ? "bg-white border border-black/10"
                       : "bg-muted"
                   )}>
-                    {message.role==='user'?<UserAvatar/>:<BotAvatar/>}
-                    <p  className='text-sm' >
-
-                  {message.content}
-                    </p>
+                  {message.role === "user" ? <UserAvatar /> : <BotAvatar />}
+                  <p className="text-sm">{message.content}</p>
                 </div>
               );
             })}
