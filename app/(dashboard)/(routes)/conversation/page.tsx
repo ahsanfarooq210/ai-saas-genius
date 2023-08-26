@@ -18,8 +18,10 @@ import Loader from "@/components/Loader";
 import { cn } from "@/lib/utils";
 import UserAvatar from "@/components/UserAvatar";
 import BotAvatar from "@/components/BotAvatar";
+import useProModel from "@/hooks/use-pro-model";
 
 const ConversationPage = () => {
+  const promodal = useProModel();
   const router = useRouter();
   const [messages, setMessages] = useState<ChatCompletionRequestMessage[]>([]);
   const form = useForm<z.infer<typeof formSchema>>({
@@ -48,7 +50,9 @@ const ConversationPage = () => {
       });
       form.reset();
     } catch (error: any) {
-      //TODO:open pro model
+      if (error?.response?.status === 403) {
+        promodal.onOpen();
+      }
       console.log(error);
     } finally {
       router.refresh();

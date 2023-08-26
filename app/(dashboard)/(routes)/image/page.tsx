@@ -27,8 +27,10 @@ import {
 import { SelectContent } from "@radix-ui/react-select";
 import { Card, CardFooter } from "@/components/ui/card";
 import Image from "next/image";
+import useProModel from "@/hooks/use-pro-model";
 
 const ImagePage = () => {
+  const proModal = useProModel();
   const router = useRouter();
   const [images, setImages] = useState<Array<string>>([]);
 
@@ -56,7 +58,9 @@ const ImagePage = () => {
 
       form.reset();
     } catch (error: any) {
-      //TODO:open pro model
+      if (error?.response?.status === 403) {
+        proModal.onOpen();
+      }
       console.log(error);
     } finally {
       router.refresh();
@@ -184,18 +188,17 @@ const ImagePage = () => {
               return (
                 <Card key={src} className="rounded-lg overflow-hidden">
                   <div className="relative aspect-square">
-                    <Image
-                      alt="Image"
-                      fill
-                      src={src}
-                    />
+                    <Image alt="Image" fill src={src} />
                   </div>
-                  <CardFooter className="p-2" >
-                    <Button variant='secondary' className="w-full"  onClick={()=>{
-                      window.open(src)
-                    }} >
+                  <CardFooter className="p-2">
+                    <Button
+                      variant="secondary"
+                      className="w-full"
+                      onClick={() => {
+                        window.open(src);
+                      }}>
                       <Download className="h-4 w-4 mr-2" />
-                        Download
+                      Download
                     </Button>
                   </CardFooter>
                 </Card>

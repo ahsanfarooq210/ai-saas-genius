@@ -15,8 +15,10 @@ import { ChatCompletionRequestMessage } from "openai";
 import { useState } from "react";
 import Empty from "@/components/Empty";
 import Loader from "@/components/Loader";
+import useProModel from "@/hooks/use-pro-model";
 
 const MusicPage = () => {
+  const proModal = useProModel();
   const router = useRouter();
   const [music, setMusic] = useState<string>();
   const form = useForm<z.infer<typeof formSchema>>({
@@ -37,7 +39,9 @@ const MusicPage = () => {
       setMusic(response.data.audio);
       form.reset();
     } catch (error: any) {
-      //TODO:open pro model
+      if (error?.response?.status === 403) {
+        proModal.onOpen();
+      }
       console.log(error);
     } finally {
       router.refresh();

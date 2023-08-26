@@ -14,8 +14,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Empty from "@/components/Empty";
 import Loader from "@/components/Loader";
+import useProModel from "@/hooks/use-pro-model";
 
 const VideoPage = () => {
+  const proModal = useProModel();
   const router = useRouter();
   const [video, setVideo] = useState<string>();
   const form = useForm<z.infer<typeof formSchema>>({
@@ -36,7 +38,9 @@ const VideoPage = () => {
       setVideo(response.data[0]);
       form.reset();
     } catch (error: any) {
-      //TODO:open pro model
+      if (error?.response?.status === 403) {
+        proModal.onOpen();
+      }
       console.log(error);
     } finally {
       router.refresh();
@@ -96,7 +100,9 @@ const VideoPage = () => {
             </div>
           )}
           {video && !isLoading && (
-            <video className="w-full aspect-video mt-8 roounded-lg border bg-black"  controls>
+            <video
+              className="w-full aspect-video mt-8 roounded-lg border bg-black"
+              controls>
               <source src={video} />
             </video>
           )}
