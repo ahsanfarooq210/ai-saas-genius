@@ -13,9 +13,11 @@ import {
   Music,
   Settings,
   VideoIcon,
+  BookIcon,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import FreeCounter from "./FreeCounter";
+
 
 const montserrat = Montserrat({ weight: "600", subsets: ["latin"] });
 
@@ -55,6 +57,12 @@ const routes = [
     icon: Code,
     href: "/code",
     color: "text-green-700",
+  },
+  {
+    label: "PDF Chat",
+    icon: BookIcon,
+    href: "/pdf",
+    color: "text-red-600",
   },
   {
     label: "Settings",
