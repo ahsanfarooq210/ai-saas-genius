@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 
 export async function POST(req:NextRequest,res:NextResponse){
-    await Initializelangchain()
+    // await Initializelangchain()
 
     return NextResponse.json({message:'success'},{status:200})
 }

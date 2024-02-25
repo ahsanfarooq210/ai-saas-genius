@@ -10,6 +10,7 @@ import { formSchema } from "./constants";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
+import { Input } from "@/components/ui/input";
 
 const PdfPage = () => {
   const proModal = useProModel();
@@ -43,7 +44,11 @@ const PdfPage = () => {
         iconColor="text-red-600"
         bgColor="bg-red-500/10"
       />
-      <div className="px-4 lg:px-8"></div>
+      <div className="px-4 lg:px-8">
+        <Input type="file" accept=".pdf" className="h-max w-full flex justify-center" onChange={(event)=>{
+          console.log(event.target.value)
+        }} />
+      </div>
     </div>
   );
 };
