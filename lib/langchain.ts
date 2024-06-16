@@ -14,33 +14,49 @@ const batchChunks = (chunks: any[], batchSize: number): any[][] => {
   return batches;
 };
 
-//in this function we are reciving a document and splitting the document and uploading it to the supabase vector store
-export const uploadFileToVectorStore = async (file: File) => {
-  //create a supabase client
+// Function to add metadata to each chunk
+const addMetadataToChunks = (chunks: any[], userId: string, documentId: string): any[] => {
+  return chunks.map(chunk => ({
+    ...chunk,
+    metadata: {
+      userId,
+      documentId,
+    }
+  }));
+};
+
+// Main function to upload file to vector store
+export const uploadFileToVectorStore = async (file: File, userId: string, documentId: string) => {
+  // Create a Supabase client
   const client = createClient(
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_API_KEY!
   );
 
-  //for loading pdfs
+  // Load the PDF document
   const loader = new WebPDFLoader(file);
   const docs = await loader.load();
-  //initialize the text splitter
+
+  // Initialize the text splitter
   const textSplitter = new RecursiveCharacterTextSplitter({
     chunkSize: 750,
     chunkOverlap: 50,
     separators: ["\n\n", "\n", " ", ""], // default setting
   });
 
-  //create chunks of the documents
+  // Create chunks of the documents
   const chunks = await textSplitter.splitDocuments(docs);
-  //create batches of 100 chunks
-  const chunkBatches = batchChunks(chunks, 100);
+
+  // Add metadata to each chunk
+  const chunksWithMetadata = addMetadataToChunks(chunks, userId, documentId);
+
+  // Create batches of 100 chunks
+  const chunkBatches = batchChunks(chunksWithMetadata, 100);
 
   // Upload each batch to the vector store
   const batchPromises: Promise<SupabaseVectorStore>[] = [];
   for (const batch of chunkBatches) {
-    //create promises of uploading 100 chunks
+    // Create promises of uploading 100 chunks
     const promise = SupabaseVectorStore.fromDocuments(
       batch,
       new OpenAIEmbeddings({ openAIApiKey: process.env.OPENAI_API_KEY! }),
@@ -52,9 +68,6 @@ export const uploadFileToVectorStore = async (file: File) => {
     batchPromises.push(promise);
   }
 
-  //upload all the chunks on the supabase vector store
+  // Upload all the chunks to the Supabase vector store
   await Promise.all(batchPromises);
-
 };
-
-
