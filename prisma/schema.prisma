@@ -28,8 +28,9 @@ model UserSubscription {
   stripeCurrentPeriodEnd DateTime? @map(name: "stripe_current_period_end")
 }
 
-model Document {
-  id      String                 @id @default(cuid()) @map("_id")
-  content String
-  vector  Unsupported("vector")?
+model UserDocuments {
+  id         String @id @default(cuid()) @map("_id")
+  userId     String
+  documentId String @unique
+    
 }

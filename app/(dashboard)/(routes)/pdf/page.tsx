@@ -29,7 +29,7 @@ const PdfPage = () => {
       const sendApiCall = async () => {
         await axios.post("/api/pdf", {});
       };
-      sendApiCall();
+      // sendApiCall();
     } catch (error: any) {
       console.log("pdf error", error.message);
     }
@@ -45,9 +45,14 @@ const PdfPage = () => {
         bgColor="bg-red-500/10"
       />
       <div className="px-4 lg:px-8">
-        <Input type="file" accept=".pdf" className="h-max w-full flex justify-center" onChange={(event)=>{
-          console.log(event.target.value)
-        }} />
+        <Input
+          type="file"
+          accept=".pdf"
+          className="h-max w-full flex justify-center"
+          onChange={(event) => {
+            console.log(event.target.files?.[0]);
+          }}
+        />
       </div>
     </div>
   );
