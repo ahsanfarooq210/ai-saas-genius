@@ -7,7 +7,6 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const pdfFile = formData.get("file");
-    const body = await req.json();
     const { userId } = auth();
     const documentId = uuidv4();
 
