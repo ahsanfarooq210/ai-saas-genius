@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import { Zap } from "lucide-react";
 import axios from "axios";
 

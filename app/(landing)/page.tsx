@@ -1,6 +1,6 @@
-import LandingContent from "@/components/landing-content";
-import LandingHero from "@/components/landing-hero";
-import LandingNavbar from "@/components/landing-navbar";
+import LandingContent from "@/components/global/landing-content";
+import LandingHero from "@/components/global/landing-hero";
+import LandingNavbar from "@/components/global/landing-navbar";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 

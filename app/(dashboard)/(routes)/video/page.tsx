@@ -8,12 +8,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form";
 import axios from "axios";
 import { formSchema } from "./constants";
-import Heading from "@/components/Heading";
+import Heading from "@/components/global/Heading";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import Empty from "@/components/Empty";
-import Loader from "@/components/Loader";
+import Empty from "@/components/global/Empty";
+import Loader from "@/components/global/Loader";
 import useProModel from "@/hooks/use-pro-model";
 import toast from "react-hot-toast";
 

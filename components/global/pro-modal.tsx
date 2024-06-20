@@ -8,9 +8,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "./ui/dialog";
+} from "../ui/dialog";
 import useProModel from "@/hooks/use-pro-model";
-import { Badge } from "./ui/badge";
+import { Badge } from "../ui/badge";
 import {
   Check,
   Code,
@@ -20,9 +20,9 @@ import {
   VideoIcon,
   Zap,
 } from "lucide-react";
-import { Card } from "./ui/card";
+import { Card } from "../ui/card";
 import { cn } from "@/lib/utils";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import axios from "axios";
 
 const tools = [

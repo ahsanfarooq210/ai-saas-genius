@@ -8,16 +8,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form";
 import axios from "axios";
 import { amountOptions, formSchema, resolutionOptions } from "./constants";
-import Heading from "@/components/Heading";
+import Heading from "@/components/global/Heading";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { ChatCompletionRequestMessage } from "openai";
 import { useState } from "react";
-import Empty from "@/components/Empty";
-import Loader from "@/components/Loader";
+import Empty from "@/components/global/Empty";
+import Loader from "@/components/global/Loader";
 import { cn } from "@/lib/utils";
 import UserAvatar from "@/components/UserAvatar";
-import BotAvatar from "@/components/BotAvatar";
+import BotAvatar from "@/components/global/BotAvatar";
 import {
   Select,
   SelectItem,
