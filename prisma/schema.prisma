@@ -29,8 +29,8 @@ model UserSubscription {
 }
 
 model UserDocuments {
-  id         String @id @default(cuid()) @map("_id")
-  userId     String
-  documentId String @unique
-    
+  id           String @id @default(cuid()) @map("_id")
+  userId       String
+  documentId   String @unique
+  documentName String
 }

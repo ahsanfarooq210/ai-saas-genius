@@ -29,12 +29,15 @@ export async function POST(req: Request) {
       );
     }
 
+    const fileName = (pdfFile as File).name;
+
     await uploadFileToVectorStore(pdfFile as File, userId, documentId);
 
     await prisma?.userDocuments.create({
       data: {
         userId: userId,
         documentId,
+        documentName: fileName,
       },
     });
 
