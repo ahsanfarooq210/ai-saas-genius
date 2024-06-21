@@ -1,4 +1,6 @@
+import { checkApiLimit, increaseApiLimit } from "@/lib/api-limit";
 import { uploadFileToVectorStore } from "@/lib/langchain";
+import { checkSubscription } from "@/lib/subscription";
 import { auth } from "@clerk/nextjs";
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
@@ -29,6 +31,13 @@ export async function POST(req: Request) {
       );
     }
 
+    const freeTrial = await checkApiLimit();
+    const isPro = await checkSubscription();
+    
+    if (!freeTrial && !isPro) {
+      return new NextResponse("Free Trial has Expired", { status: 403 });
+    }
+
     const fileName = (pdfFile as File).name;
 
     await uploadFileToVectorStore(pdfFile as File, userId, documentId);
@@ -40,6 +49,10 @@ export async function POST(req: Request) {
         documentName: fileName,
       },
     });
+
+    if (!isPro) {
+      await increaseApiLimit();
+    }
 
     return NextResponse.json(
       {

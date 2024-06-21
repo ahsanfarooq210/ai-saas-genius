@@ -7,6 +7,9 @@ import React from "react";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import useFileUpload from "@/hooks/useFileUpload";
+import { useGetUserDocs } from "@/hooks/useGetUserDocs";
+import { useUser } from "@clerk/nextjs";
+import UserDocList from "@/components/pdf/UserDocsList";
 
 const PdfPage = () => {
   const {
@@ -17,7 +20,6 @@ const PdfPage = () => {
     isLoading,
   } = useFileUpload();
 
-  const proModal = useProModel();
   const router = useRouter();
 
   return (
@@ -47,6 +49,10 @@ const PdfPage = () => {
             )}
           </>
         )}
+
+        <div className="mt-7">
+          <UserDocList />
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import axios from "axios";
+import useProModel from "./use-pro-model";
 
 const useFileUpload = () => {
   const [progress, setProgress] = useState<number>(0);
@@ -7,6 +8,7 @@ const useFileUpload = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const proModal = useProModel();
 
   const uploadFile = async (file: File) => {
     try {
@@ -31,6 +33,11 @@ const useFileUpload = () => {
           }
         },
       });
+
+      if (response.status === 403) {
+        proModal.onOpen();
+      }
+      
       setIsProcessing(false);
     } catch (error) {
       console.log(error);
