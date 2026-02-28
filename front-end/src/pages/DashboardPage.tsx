@@ -1,4 +1,4 @@
-import { Code, ImageIcon, MessageSquare, Music, VideoIcon } from "lucide-react";
+import { ArrowRight, Code, ImageIcon, MessageSquare, Music, VideoIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -59,7 +59,7 @@ const DashboardPage = () => {
           <Card
             onClick={() => navigate(tool.href)}
             key={tool.href}
-            className="p-4 border-black/5 flex items-center justify-between hover:shadow-md transition cursor-pointer"
+            className="p-4 border-white/5 flex items-center justify-between hover:shadow-md transition cursor-pointer hover:bg-white/5"
           >
             <div className="flex items-center gap-x-4">
               <div className={cn("p-2 w-fit rounded-md", tool.bgColor)}>
@@ -67,7 +67,7 @@ const DashboardPage = () => {
               </div>
               <div className="font-semibold">{tool.label}</div>
             </div>
-            {/* Arrow icon can be added here */}
+            <ArrowRight className="w-5 h-5" />
           </Card>
         ))}
       </div>
