@@ -1,34 +1,66 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# AI SaaS Genius - MERN Stack
+
+This project has been migrated from a Next.js application to a MERN stack (MongoDB, Express, React, Node.js). It is organized as a monorepo with `front-end` and `backend` directories.
+
+## Prerequisites
+
+- Node.js (v18+)
+- MongoDB (running locally or a cloud URI)
+- Stripe Account (for payments)
+- OpenAI API Key
+- Replicate API Token
+- GitHub OAuth App (for Better Auth)
+
+## Environment Variables
+
+Create a `.env` file in the `backend` directory with the following:
+
+```env
+PORT=5000
+DATABASE_URL=mongodb://localhost:27017/ai-saas
+OPENAI_API_KEY=your_openai_key
+REPLICATE_API_TOKEN=your_replicate_token
+STRIPE_API_KEY=your_stripe_secret_key
+STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+BETTER_AUTH_SECRET=your_better_auth_secret
+BETTER_AUTH_URL=http://localhost:5000
+SETTINGS_URL=http://localhost:5173/settings
+```
 
 ## Getting Started
 
-First, run the development server:
+### 1. Backend
 
 ```bash
+cd backend
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The backend server will start on `http://localhost:5000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Front-end
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+```bash
+cd front-end
+npm install
+npm run dev
+```
 
-## Learn More
+The front-end client will start on `http://localhost:5173`.
 
-To learn more about Next.js, take a look at the following resources:
+## Architecture
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Front-end:** React (Vite), Tailwind CSS, Shadcn UI, Better Auth Client
+- **Backend:** Node.js, Express, Mongoose (MongoDB), Better Auth Server
+- **Features:**
+  - Authentication (GitHub, Email/Password via Better Auth)
+  - AI Generation (Code, Conversation, Image, Music, Video)
+  - Subscription Management (Stripe)
+  - API Usage Limits (MongoDB)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+## License
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+ISC
