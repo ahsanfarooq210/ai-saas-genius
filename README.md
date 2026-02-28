@@ -1,6 +1,6 @@
 # AI SaaS Genius - MERN Stack
 
-This project has been migrated from a Next.js application to a MERN stack (MongoDB, Express, React, Node.js). It is organized as a monorepo with `client` and `server` directories.
+This project has been migrated from a Next.js application to a MERN stack (MongoDB, Express, React, Node.js). It is organized as a monorepo with `front-end` and `backend` directories.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ This project has been migrated from a Next.js application to a MERN stack (Mongo
 
 ## Environment Variables
 
-Create a `.env` file in the `server` directory with the following:
+Create a `.env` file in the `backend` directory with the following:
 
 ```env
 PORT=5000
@@ -31,30 +31,30 @@ SETTINGS_URL=http://localhost:5173/settings
 
 ## Getting Started
 
-### 1. Backend (Server)
+### 1. Backend
 
 ```bash
-cd server
+cd backend
 npm install
 npm run dev
 ```
 
-The server will start on `http://localhost:5000`.
+The backend server will start on `http://localhost:5000`.
 
-### 2. Frontend (Client)
+### 2. Front-end
 
 ```bash
-cd client
+cd front-end
 npm install
 npm run dev
 ```
 
-The client will start on `http://localhost:5173`.
+The front-end client will start on `http://localhost:5173`.
 
 ## Architecture
 
-- **Client:** React (Vite), Tailwind CSS, Shadcn UI, Better Auth Client
-- **Server:** Node.js, Express, Mongoose (MongoDB), Better Auth Server
+- **Front-end:** React (Vite), Tailwind CSS, Shadcn UI, Better Auth Client
+- **Backend:** Node.js, Express, Mongoose (MongoDB), Better Auth Server
 - **Features:**
   - Authentication (GitHub, Email/Password via Better Auth)
   - AI Generation (Code, Conversation, Image, Music, Video)
