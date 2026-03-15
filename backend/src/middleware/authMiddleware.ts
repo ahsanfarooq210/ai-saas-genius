@@ -6,20 +6,20 @@ interface AuthRequest extends Request {
 }
 
 export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
-  let token;
+  let accessToken;
 
-  if (req.cookies && req.cookies.token) {
-    token = req.cookies.token;
+  if (req.cookies && req.cookies.accessToken) {
+    accessToken = req.cookies.accessToken;
   } else if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
-    token = req.headers.authorization.split(" ")[1];
+    accessToken = req.headers.authorization.split(" ")[1];
   }
 
-  if (!token) {
+  if (!accessToken) {
     return res.status(401).json({ message: "Not authorized, no token" });
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "fallback_secret") as any;
+    const decoded = jwt.verify(accessToken, process.env.JWT_SECRET || "fallback_secret") as any;
 
     req.user = decoded;
     req.body.userId = decoded.id; // Many controllers expect this

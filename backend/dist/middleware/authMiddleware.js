@@ -15,18 +15,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.authMiddleware = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const authMiddleware = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    let token;
-    if (req.cookies && req.cookies.token) {
-        token = req.cookies.token;
+    let accessToken;
+    if (req.cookies && req.cookies.accessToken) {
+        accessToken = req.cookies.accessToken;
     }
     else if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
-        token = req.headers.authorization.split(" ")[1];
+        accessToken = req.headers.authorization.split(" ")[1];
     }
-    if (!token) {
+    if (!accessToken) {
         return res.status(401).json({ message: "Not authorized, no token" });
     }
     try {
-        const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || "fallback_secret");
+        const decoded = jsonwebtoken_1.default.verify(accessToken, process.env.JWT_SECRET || "fallback_secret");
         req.user = decoded;
         req.body.userId = decoded.id; // Many controllers expect this
         next();

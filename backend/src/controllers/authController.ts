@@ -3,8 +3,14 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User";
 
-const generateToken = (id: string) => {
+const generateAccessToken = (id: string) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || "fallback_secret", {
+    expiresIn: "15m",
+  });
+};
+
+const generateRefreshToken = (id: string) => {
+  return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET || "fallback_refresh_secret", {
     expiresIn: "30d",
   });
 };
@@ -33,8 +39,17 @@ export const signup = async (req: Request, res: Response) => {
     });
 
     if (user) {
-      const token = generateToken(user._id.toString());
-      res.cookie("token", token, {
+      const accessToken = generateAccessToken(user._id.toString());
+      const refreshToken = generateRefreshToken(user._id.toString());
+
+      res.cookie("accessToken", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 15 * 60 * 1000, // 15 minutes
+      });
+
+      res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
@@ -45,7 +60,7 @@ export const signup = async (req: Request, res: Response) => {
         _id: user._id,
         name: user.name,
         email: user.email,
-        token,
+        accessToken,
       });
     } else {
       res.status(400).json({ message: "Invalid user data" });
@@ -67,8 +82,17 @@ export const login = async (req: Request, res: Response) => {
     const user = await User.findOne({ email });
 
     if (user && (await bcrypt.compare(password, user.password))) {
-      const token = generateToken(user._id.toString());
-      res.cookie("token", token, {
+      const accessToken = generateAccessToken(user._id.toString());
+      const refreshToken = generateRefreshToken(user._id.toString());
+
+      res.cookie("accessToken", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 15 * 60 * 1000, // 15 minutes
+      });
+
+      res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
@@ -79,7 +103,7 @@ export const login = async (req: Request, res: Response) => {
         _id: user._id,
         name: user.name,
         email: user.email,
-        token,
+        accessToken,
       });
     } else {
       res.status(401).json({ message: "Invalid email or password" });
@@ -91,11 +115,46 @@ export const login = async (req: Request, res: Response) => {
 };
 
 export const logout = (req: Request, res: Response) => {
-  res.cookie("token", "", {
+  res.cookie("accessToken", "", {
+    httpOnly: true,
+    expires: new Date(0),
+  });
+  res.cookie("refreshToken", "", {
     httpOnly: true,
     expires: new Date(0),
   });
   res.status(200).json({ message: "Logged out successfully" });
+};
+
+export const refresh = async (req: Request, res: Response) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+
+    if (!refreshToken) {
+      return res.status(401).json({ message: "Not authorized, no refresh token" });
+    }
+
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || "fallback_refresh_secret") as any;
+    const user = await User.findById(decoded.id);
+
+    if (!user) {
+      return res.status(401).json({ message: "Not authorized, invalid token" });
+    }
+
+    const accessToken = generateAccessToken(user._id.toString());
+
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
+    res.json({ accessToken });
+  } catch (error) {
+    console.error("Refresh token error:", error);
+    res.status(401).json({ message: "Not authorized, refresh token failed" });
+  }
 };
 
 export const me = async (req: any, res: Response) => {
