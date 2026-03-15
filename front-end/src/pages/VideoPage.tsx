@@ -1,8 +1,33 @@
+import { useState } from "react";
 import { VideoIcon } from "lucide-react";
 import { Heading } from "@/components/Heading";
 import { Button } from "@/components/ui/button";
+import { axiosClient } from "@/lib/axios";
 
 const VideoPage = () => {
+  const [prompt, setPrompt] = useState("");
+  const [video, setVideo] = useState<string>();
+  const [isLoading, setIsLoading] = useState(false);
+
+  const onSubmit = async () => {
+    if (!prompt) return;
+
+    try {
+      setVideo(undefined);
+      setIsLoading(true);
+
+      const response = await axiosClient.post("/video", {
+        prompt,
+      });
+
+      setVideo(response.data[0]);
+    } catch (error) {
+      console.error("[VIDEO_ERROR]", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div>
       <Heading
@@ -14,15 +39,37 @@ const VideoPage = () => {
       />
       <div className="px-4 lg:px-8">
         <div className="rounded-lg border w-full p-4 px-3 md:px-6 focus-within:shadow-sm grid grid-cols-12 gap-2">
-           <input className="col-span-12 lg:col-span-10 border-0 outline-none focus-visible:ring-0 focus-visible:ring-transparent bg-transparent" placeholder="Clown fish swimming around a coral reef" />
-           <Button className="col-span-12 lg:col-span-2 w-full" type="submit">
+           <input
+             className="col-span-12 lg:col-span-10 border-0 outline-none focus-visible:ring-0 focus-visible:ring-transparent bg-transparent"
+             placeholder="Clown fish swimming around a coral reef"
+             value={prompt}
+             onChange={(e) => setPrompt(e.target.value)}
+             disabled={isLoading}
+             onKeyDown={(e) => {
+               if (e.key === "Enter") {
+                 onSubmit();
+               }
+             }}
+           />
+           <Button
+             className="col-span-12 lg:col-span-2 w-full"
+             onClick={onSubmit}
+             disabled={isLoading || !prompt}
+           >
               Generate
            </Button>
         </div>
         <div className="space-y-4 mt-4">
-          <div className="p-8 rounded-lg w-full flex items-center justify-center bg-muted">
-            No video generated.
-          </div>
+          {!video && !isLoading && (
+            <div className="p-8 rounded-lg w-full flex items-center justify-center bg-muted">
+              No video generated.
+            </div>
+          )}
+          {video && (
+            <video controls className="w-full aspect-video mt-8 rounded-lg border bg-black">
+              <source src={video} />
+            </video>
+          )}
         </div>
       </div>
     </div>
