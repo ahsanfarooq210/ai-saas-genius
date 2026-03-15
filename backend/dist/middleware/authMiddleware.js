@@ -8,19 +8,32 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authMiddleware = void 0;
-const auth_1 = require("../auth");
-const node_1 = require("better-auth/node");
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const authMiddleware = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    const session = yield auth_1.auth.api.getSession({
-        headers: (0, node_1.fromNodeHeaders)(req.headers)
-    });
-    if (!session) {
-        return res.status(401).send("Unauthorized");
+    let token;
+    if (req.cookies && req.cookies.token) {
+        token = req.cookies.token;
     }
-    req.body.userId = session.user.id;
-    req.body.user = session.user;
-    next();
+    else if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+        token = req.headers.authorization.split(" ")[1];
+    }
+    if (!token) {
+        return res.status(401).json({ message: "Not authorized, no token" });
+    }
+    try {
+        const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || "fallback_secret");
+        req.user = decoded;
+        req.body.userId = decoded.id; // Many controllers expect this
+        next();
+    }
+    catch (error) {
+        console.error(error);
+        res.status(401).json({ message: "Not authorized, token failed" });
+    }
 });
 exports.authMiddleware = authMiddleware;

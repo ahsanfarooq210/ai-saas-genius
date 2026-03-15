@@ -16,7 +16,7 @@ exports.connectDB = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        yield mongoose_1.default.connect(process.env.DATABASE_URL || "");
+        yield mongoose_1.default.connect(process.env.DATABASE_URL || "mongodb://localhost:27017/ai-saas");
         console.log("MongoDB connected");
     }
     catch (error) {

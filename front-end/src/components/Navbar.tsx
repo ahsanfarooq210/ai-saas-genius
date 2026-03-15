@@ -2,15 +2,15 @@ import { Menu, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import Sidebar from "@/components/Sidebar";
-import { authClient, useSession } from "@/lib/auth-client";
+import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
 const Navbar = () => {
   const navigate = useNavigate();
-  const { data: session } = useSession();
+  const { user, signOut } = useAuth();
 
   const handleSignOut = async () => {
-    await authClient.signOut();
+    await signOut();
     navigate("/sign-in");
   };
 
@@ -27,26 +27,20 @@ const Navbar = () => {
         </SheetContent>
       </Sheet>
       <div className="flex w-full justify-end gap-2 items-center">
-        {session?.user && (
+        {user && (
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">{session.user.name}</span>
+            <span className="text-sm font-medium">{user.name}</span>
             <Button variant="ghost" onClick={() => navigate("/settings")}>
               <User className="h-4 w-4" />
             </Button>
             <Button variant="ghost" onClick={handleSignOut}>
               <LogOut className="h-4 w-4" />
             </Button>
-            {session.user.image ? (
-               <div className="relative h-8 w-8 rounded-full p-0 overflow-hidden">
-                <img src={session.user.image} alt={session.user.name || "User"} className="h-full w-full object-cover" />
-               </div>
-            ) : (
-              <div className="relative h-8 w-8 rounded-full p-0 overflow-hidden">
-                <div className="h-full w-full bg-slate-200 flex items-center justify-center">
-                  <span className="text-slate-600 font-semibold">{session.user.name?.charAt(0) || "U"}</span>
-                </div>
+            <div className="relative h-8 w-8 rounded-full p-0 overflow-hidden">
+              <div className="h-full w-full bg-slate-200 flex items-center justify-center">
+                <span className="text-slate-600 font-semibold">{user.name?.charAt(0) || "U"}</span>
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
