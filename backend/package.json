@@ -9,10 +9,15 @@
     "build": "tsc"
   },
   "dependencies": {
+    "@better-auth/core": "^1.5.5",
+    "@better-auth/mongo-adapter": "^1.5.5",
+    "@types/mongoose": "^5.11.96",
     "better-auth": "^1.5.5",
+    "better-call": "^2.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "mongodb": "^7.1.0",
     "mongoose": "^8.3.3",
     "openai": "^4.47.1",
     "replicate": "^0.29.1",
