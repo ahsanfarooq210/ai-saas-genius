@@ -12,12 +12,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.me = exports.logout = exports.login = exports.signup = void 0;
+exports.me = exports.refresh = exports.logout = exports.login = exports.signup = void 0;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const User_1 = __importDefault(require("../models/User"));
-const generateToken = (id) => {
+const generateAccessToken = (id) => {
     return jsonwebtoken_1.default.sign({ id }, process.env.JWT_SECRET || "fallback_secret", {
+        expiresIn: "15m",
+    });
+};
+const generateRefreshToken = (id) => {
+    return jsonwebtoken_1.default.sign({ id }, process.env.JWT_REFRESH_SECRET || "fallback_refresh_secret", {
         expiresIn: "30d",
     });
 };
@@ -39,8 +44,15 @@ const signup = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             password: hashedPassword,
         });
         if (user) {
-            const token = generateToken(user._id.toString());
-            res.cookie("token", token, {
+            const accessToken = generateAccessToken(user._id.toString());
+            const refreshToken = generateRefreshToken(user._id.toString());
+            res.cookie("accessToken", accessToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: "lax",
+                maxAge: 15 * 60 * 1000, // 15 minutes
+            });
+            res.cookie("refreshToken", refreshToken, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === "production",
                 sameSite: "lax",
@@ -50,7 +62,7 @@ const signup = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 _id: user._id,
                 name: user.name,
                 email: user.email,
-                token,
+                accessToken,
             });
         }
         else {
@@ -71,8 +83,15 @@ const login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         }
         const user = yield User_1.default.findOne({ email });
         if (user && (yield bcryptjs_1.default.compare(password, user.password))) {
-            const token = generateToken(user._id.toString());
-            res.cookie("token", token, {
+            const accessToken = generateAccessToken(user._id.toString());
+            const refreshToken = generateRefreshToken(user._id.toString());
+            res.cookie("accessToken", accessToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: "lax",
+                maxAge: 15 * 60 * 1000, // 15 minutes
+            });
+            res.cookie("refreshToken", refreshToken, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === "production",
                 sameSite: "lax",
@@ -82,7 +101,7 @@ const login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 _id: user._id,
                 name: user.name,
                 email: user.email,
-                token,
+                accessToken,
             });
         }
         else {
@@ -96,13 +115,43 @@ const login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 });
 exports.login = login;
 const logout = (req, res) => {
-    res.cookie("token", "", {
+    res.cookie("accessToken", "", {
+        httpOnly: true,
+        expires: new Date(0),
+    });
+    res.cookie("refreshToken", "", {
         httpOnly: true,
         expires: new Date(0),
     });
     res.status(200).json({ message: "Logged out successfully" });
 };
 exports.logout = logout;
+const refresh = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const refreshToken = req.cookies.refreshToken;
+        if (!refreshToken) {
+            return res.status(401).json({ message: "Not authorized, no refresh token" });
+        }
+        const decoded = jsonwebtoken_1.default.verify(refreshToken, process.env.JWT_REFRESH_SECRET || "fallback_refresh_secret");
+        const user = yield User_1.default.findById(decoded.id);
+        if (!user) {
+            return res.status(401).json({ message: "Not authorized, invalid token" });
+        }
+        const accessToken = generateAccessToken(user._id.toString());
+        res.cookie("accessToken", accessToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 15 * 60 * 1000, // 15 minutes
+        });
+        res.json({ accessToken });
+    }
+    catch (error) {
+        console.error("Refresh token error:", error);
+        res.status(401).json({ message: "Not authorized, refresh token failed" });
+    }
+});
+exports.refresh = refresh;
 const me = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const user = yield User_1.default.findById(req.user.id).select("-password");
