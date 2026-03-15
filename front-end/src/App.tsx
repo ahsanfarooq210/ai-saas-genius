@@ -8,6 +8,8 @@ import VideoPage from "./pages/VideoPage";
 import MusicPage from "./pages/MusicPage";
 import CodePage from "./pages/CodePage";
 import SettingsPage from "./pages/SettingsPage";
+import SignInPage from "./pages/SignInPage";
+import SignUpPage from "./pages/SignUpPage";
 import { Toaster } from "react-hot-toast";
 
 function App() {
@@ -16,6 +18,8 @@ function App() {
       <Toaster />
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/sign-in" element={<SignInPage />} />
+        <Route path="/sign-up" element={<SignUpPage />} />
         <Route path="/" element={<DashboardLayout />}>
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="conversation" element={<ConversationPage />} />

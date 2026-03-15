@@ -1,7 +1,10 @@
 import { betterAuth } from "better-auth";
 import { MongoClient } from "mongodb";
+import dotenv from "dotenv";
 
-const client = new MongoClient(process.env.DATABASE_URL || "");
+dotenv.config();
+
+const client = new MongoClient(process.env.DATABASE_URL || "mongodb://localhost:27017/ai-saas");
 const db = client.db();
 
 export const auth = betterAuth({
