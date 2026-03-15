@@ -1,10 +1,10 @@
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
 import { Navigate, Outlet } from "react-router-dom";
-import { useSession } from "@/lib/auth-client";
+import { useAuth } from "@/contexts/AuthContext";
 
 const DashboardLayout = () => {
-  const { data: session, isPending } = useSession();
+  const { user, isPending } = useAuth();
 
   if (isPending) {
     return (
@@ -14,7 +14,7 @@ const DashboardLayout = () => {
     );
   }
 
-  if (!session) {
+  if (!user) {
     return <Navigate to="/sign-in" replace />;
   }
 
