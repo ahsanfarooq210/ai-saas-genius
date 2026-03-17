@@ -1,21 +1,31 @@
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 dotenv.config();
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Note: Ensure the API key environment variable matches how you configure the client.
+// We'll assume the environment uses GEMINI_API_KEY.
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-const instructionMessage: OpenAI.Chat.ChatCompletionMessageParam = {
-  role: "system",
-  content:
-    "You are a code generator, you must answer only in markdown code snippets. Use code comments for explanations.",
-};
+const instructionMessage = "You are a code generator, you must answer only in markdown code snippets. Use code comments for explanations.";
 
 export const generateCode = async (messages: any[]) => {
-  const response = await openai.chat.completions.create({
-    model: "gpt-3.5-turbo",
-    messages: [instructionMessage, ...messages],
+  const contents = messages.map(msg => {
+    return {
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    }
   });
-  return response.choices[0].message;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-pro",
+    contents: contents,
+    config: {
+      systemInstruction: instructionMessage
+    }
+  });
+
+  return {
+    role: "assistant",
+    content: response.text
+  };
 };

@@ -1,18 +1,25 @@
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export const generateImage = async (
   prompt: string,
   amount: number,
   resolution: string
 ) => {
-  const response = await openai.images.generate({
+  const response = await ai.models.generateImages({
+    model: "nano banana",
     prompt: prompt,
-    n: amount,
-    size: resolution as any,
+    config: {
+      numberOfImages: amount,
+    }
   });
-  return response.data;
+
+  if (!response.generatedImages) {
+    return [];
+  }
+
+  return response.generatedImages.map((img: any) => ({
+    b64_json: img.image?.imageBytes || ''
+  }));
 };

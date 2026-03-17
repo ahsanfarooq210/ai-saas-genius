@@ -8,21 +8,26 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateImage = void 0;
-const openai_1 = __importDefault(require("openai"));
-const openai = new openai_1.default({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+const genai_1 = require("@google/genai");
+const ai = new genai_1.GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const generateImage = (prompt, amount, resolution) => __awaiter(void 0, void 0, void 0, function* () {
-    const response = yield openai.images.generate({
+    const response = yield ai.models.generateImages({
+        model: "nano banana",
         prompt: prompt,
-        n: amount,
-        size: resolution,
+        config: {
+            numberOfImages: amount,
+        }
     });
-    return response.data;
+    if (!response.generatedImages) {
+        return [];
+    }
+    return response.generatedImages.map((img) => {
+        var _a;
+        return ({
+            b64_json: ((_a = img.image) === null || _a === void 0 ? void 0 : _a.imageBytes) || ''
+        });
+    });
 });
 exports.generateImage = generateImage;

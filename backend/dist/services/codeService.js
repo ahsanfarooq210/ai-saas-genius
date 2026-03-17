@@ -13,21 +13,30 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateCode = void 0;
-const openai_1 = __importDefault(require("openai"));
+const genai_1 = require("@google/genai");
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
-const openai = new openai_1.default({
-    apiKey: process.env.OPENAI_API_KEY,
-});
-const instructionMessage = {
-    role: "system",
-    content: "You are a code generator, you must answer only in markdown code snippets. Use code comments for explanations.",
-};
+// Note: Ensure the API key environment variable matches how you configure the client.
+// We'll assume the environment uses GEMINI_API_KEY.
+const ai = new genai_1.GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const instructionMessage = "You are a code generator, you must answer only in markdown code snippets. Use code comments for explanations.";
 const generateCode = (messages) => __awaiter(void 0, void 0, void 0, function* () {
-    const response = yield openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [instructionMessage, ...messages],
+    const contents = messages.map(msg => {
+        return {
+            role: msg.role === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.content }]
+        };
     });
-    return response.choices[0].message;
+    const response = yield ai.models.generateContent({
+        model: "gemini-3.1-pro",
+        contents: contents,
+        config: {
+            systemInstruction: instructionMessage
+        }
+    });
+    return {
+        role: "assistant",
+        content: response.text
+    };
 });
 exports.generateCode = generateCode;
