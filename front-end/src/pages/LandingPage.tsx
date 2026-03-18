@@ -4,7 +4,7 @@ import LandingNavbar from "@/components/LandingNavbar";
 
 const LandingPage = () => {
   return (
-    <main className="h-full bg-[#111827] overflow-auto">
+    <main className="h-full bg-slate-50 overflow-auto">
       <div className="mx-auto max-w-screen-xl h-full w-full">
         <LandingNavbar />
         <LandingHero />

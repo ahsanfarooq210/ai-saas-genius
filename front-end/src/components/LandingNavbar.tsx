@@ -6,13 +6,13 @@ const LandingNavbar = () => {
   const { user } = useAuth();
 
   return (
-    <nav className="p-4 bg-transparent flex items-center justify-between">
+    <nav className="p-4 bg-transparent flex items-center justify-between border-b border-slate-200">
       <Link to="/" className="flex items-center">
-        <h1 className="text-2xl font-bold text-white">Genius</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Genius</h1>
       </Link>
       <div className="flex items-center gap-x-2">
         <Link to={user ? "/dashboard" : "/sign-in"}>
-          <Button variant="outline" className="rounded-full bg-white text-black hover:bg-white/90">
+          <Button variant="outline" className="rounded-full border-slate-300 bg-white text-slate-900 hover:bg-slate-100">
             Get Started
           </Button>
         </Link>
