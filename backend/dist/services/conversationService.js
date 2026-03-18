@@ -8,20 +8,30 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateConversation = void 0;
-const openai_1 = __importDefault(require("openai"));
-const openai = new openai_1.default({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+const genai_1 = require("@google/genai");
+const ai = new genai_1.GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const generateConversation = (messages) => __awaiter(void 0, void 0, void 0, function* () {
-    const response = yield openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: messages,
+    // Since we don't know the exact structure of messages array and how to map it properly to gemini-3.1-pro
+    // chat format out of the box with the new @google/genai SDK, we'll extract the text.
+    // Actually, usually it's `contents: [...]`.
+    // Let's look at the structure that typically comes from the frontend (which mimics OpenAI).
+    // The frontend typically sends `[{role: 'user', content: 'hello'}]`
+    const contents = messages.map(msg => {
+        return {
+            role: msg.role === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.content }]
+        };
     });
-    return response.choices[0].message;
+    const response = yield ai.models.generateContent({
+        model: "gemini-3.1-pro",
+        contents: contents,
+    });
+    // Format response back to what frontend expects from OpenAI shape or general `{role: string, content: string}`
+    return {
+        role: "assistant", // or "model" but frontend likely expects "assistant" as it used OpenAI
+        content: response.text
+    };
 });
 exports.generateConversation = generateConversation;
