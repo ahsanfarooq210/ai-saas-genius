@@ -83,7 +83,7 @@ const CodePage = () => {
               >
                 <div className="text-sm overflow-hidden leading-7 w-full">
                   {message.role === "assistant" ? (
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted p-4 text-xs text-foreground shadow-inner">
+                    <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word rounded-lg border border-border bg-muted p-4 text-xs text-foreground shadow-inner">
                       <code>{message.content}</code>
                     </pre>
                   ) : (
