@@ -8,8 +8,8 @@ const DashboardLayout = () => {
 
   if (isPending) {
     return (
-      <div className="h-screen w-full flex items-center justify-center bg-[#111827]">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-white"></div>
+      <div className="h-screen w-full flex items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-violet-600"></div>
       </div>
     );
   }
@@ -19,8 +19,8 @@ const DashboardLayout = () => {
   }
 
   return (
-    <div className="h-full relative">
-      <div className="hidden h-full md:flex md:w-72 md:flex-col md:fixed md:inset-y-0 bg-gray-900 z-[80]">
+    <div className="h-full relative bg-slate-50 min-h-screen">
+      <div className="hidden h-full md:flex md:w-72 md:flex-col md:fixed md:inset-y-0 bg-slate-900 z-[80]">
         <Sidebar />
       </div>
       <main className="md:pl-72">

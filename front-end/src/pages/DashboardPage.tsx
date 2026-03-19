@@ -45,12 +45,12 @@ const DashboardPage = () => {
   const navigate = useNavigate();
 
   return (
-    <div>
-      <div className="mb-8 space-y-4">
-        <h2 className="text-2xl md:text-4xl font-bold text-center">
+    <div className="pb-10">
+      <div className="mb-8 space-y-4 pt-10">
+        <h2 className="text-2xl md:text-4xl font-extrabold text-center text-slate-900">
           Explore the power of AI
         </h2>
-        <p className="text-muted-foreground font-light text-sm md:text-lg text-center">
+        <p className="text-slate-500 font-light text-sm md:text-lg text-center">
           Chat with the smartest AI - Experience the power of AI
         </p>
       </div>
@@ -59,15 +59,15 @@ const DashboardPage = () => {
           <Card
             onClick={() => navigate(tool.href)}
             key={tool.href}
-            className="p-4 border-white/5 flex items-center justify-between hover:shadow-md transition cursor-pointer hover:bg-white/5"
+            className="p-4 border-slate-200 bg-white flex items-center justify-between hover:shadow-lg transition-all duration-300 cursor-pointer hover:-translate-y-1"
           >
             <div className="flex items-center gap-x-4">
-              <div className={cn("p-2 w-fit rounded-md", tool.bgColor)}>
+              <div className={cn("p-2 w-fit rounded-lg", tool.bgColor)}>
                 <tool.icon className={cn("w-8 h-8", tool.color)} />
               </div>
-              <div className="font-semibold">{tool.label}</div>
+              <div className="font-bold text-slate-900">{tool.label}</div>
             </div>
-            <ArrowRight className="w-5 h-5" />
+            <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-slate-900 transition" />
           </Card>
         ))}
       </div>
