@@ -19,8 +19,8 @@ const DashboardLayout = () => {
   }
 
   return (
-    <div className="relative min-h-screen h-full bg-background text-foreground">
-      <div className="z-80 hidden h-full border-r border-sidebar-border bg-sidebar md:fixed md:inset-y-0 md:flex md:w-72 md:flex-col">
+    <div className="relative min-h-screen bg-background text-foreground">
+      <div className="z-80 hidden h-screen border-r border-sidebar-border bg-sidebar md:fixed md:inset-y-0 md:flex md:w-72 md:flex-col">
         <Sidebar />
       </div>
       <main className="min-h-screen bg-background md:pl-72">

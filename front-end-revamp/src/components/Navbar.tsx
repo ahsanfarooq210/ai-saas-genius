@@ -47,7 +47,7 @@ const Navbar = () => {
           >
             <Menu className="h-5 w-5" />
           </SheetTrigger>
-          <SheetContent side="left" className="border-none p-0">
+          <SheetContent side="left" className="h-screen w-[min(22rem,100vw)] max-w-88 overflow-hidden border-none p-0">
             <Sidebar />
           </SheetContent>
         </Sheet>

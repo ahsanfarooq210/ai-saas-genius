@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -91,8 +91,8 @@ const Sidebar = ({ apiLimitCount = 0, isPro = false }: SidebarProps) => {
     : `${apiLimitCount}/${maxFreeCounts} free requests used`;
 
   return (
-    <div className="flex h-full flex-col border-r border-sidebar-border/80 bg-sidebar text-sidebar-foreground">
-      <div className="flex flex-1 flex-col gap-4 p-4">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-r border-sidebar-border/80 bg-sidebar text-sidebar-foreground">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4">
         <Card className="overflow-hidden border-sidebar-border/80 bg-linear-to-br from-sidebar via-sidebar to-sidebar-accent/15 py-0 shadow-2xl shadow-black/8">
           <CardHeader className="gap-4 border-b border-sidebar-border/70 px-4 py-4">
             <Link
@@ -142,7 +142,7 @@ const Sidebar = ({ apiLimitCount = 0, isPro = false }: SidebarProps) => {
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <div className="mt-4 grid gap-2 grid-cols-1">
                 {workspaceHighlights.map((item) => (
                   <div
                     key={item.label}
@@ -170,12 +170,15 @@ const Sidebar = ({ apiLimitCount = 0, isPro = false }: SidebarProps) => {
                   Move through your AI workspaces
                 </p>
               </div>
-              <Badge variant="outline" className="border-sidebar-border/70 bg-sidebar/80 text-sidebar-foreground/80">
+              <Badge
+                variant="outline"
+                className="border-sidebar-border/70 bg-sidebar/80 text-sidebar-foreground/80"
+              >
                 {routes.length} items
               </Badge>
             </div>
 
-            <div className="space-y-2">
+            <div className="max-h-[40vh] space-y-2 overflow-y-auto pr-1">
               {routes.map((route) => {
                 const isActive = pathname === route.href;
 
@@ -209,7 +212,9 @@ const Sidebar = ({ apiLimitCount = 0, isPro = false }: SidebarProps) => {
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{route.label}</p>
+                      <p className="truncate text-sm font-medium">
+                        {route.label}
+                      </p>
                       <p
                         className={cn(
                           "text-xs",
@@ -237,7 +242,7 @@ const Sidebar = ({ apiLimitCount = 0, isPro = false }: SidebarProps) => {
 
             <Separator className="bg-sidebar-border/70" />
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3">
               <div className="rounded-2xl border border-sidebar-border/70 bg-sidebar/75 p-3">
                 <div className="flex items-center gap-2 text-sidebar-foreground/70">
                   <Gauge className="h-4 w-4 text-sidebar-primary" />
@@ -264,39 +269,45 @@ const Sidebar = ({ apiLimitCount = 0, isPro = false }: SidebarProps) => {
           </CardContent>
         </Card>
 
-        <Card className="mt-auto overflow-hidden border-sidebar-border/80 bg-linear-to-br from-sidebar via-sidebar to-sidebar-primary/10 py-0 shadow-xl shadow-black/8">
-          <CardContent className="space-y-4 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-sidebar-foreground">
-                  Usage overview
-                </p>
-                <p className="mt-1 text-xs text-sidebar-foreground/70">
-                  {usageLabel}
-                </p>
+        <Card className="mt-auto max-h-[38vh] overflow-hidden border-sidebar-border/80 bg-linear-to-br from-sidebar via-sidebar to-sidebar-primary/10 py-0 shadow-xl shadow-black/8">
+          <CardContent className="space-y-3 overflow-y-auto p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-sidebar-border/70">
+            <div className="rounded-2xl border border-sidebar-border/70 bg-sidebar/75 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-sidebar-foreground">
+                    Usage overview
+                  </p>
+                  <p className="mt-1 text-xs text-sidebar-foreground/70">
+                    {usageLabel}
+                  </p>
+                </div>
+                <Badge
+                  variant={isPro ? "default" : "outline"}
+                  className={cn(
+                    "shrink-0 border-sidebar-border/70",
+                    isPro
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "bg-sidebar/90 text-sidebar-foreground",
+                  )}
+                >
+                  {isPro ? "Unlimited" : "Starter"}
+                </Badge>
               </div>
-              <Badge
-                variant={isPro ? "default" : "outline"}
-                className={cn(
-                  "border-sidebar-border/70",
-                  isPro
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "bg-sidebar/80 text-sidebar-foreground",
-                )}
-              >
-                {isPro ? "Unlimited" : "Starter"}
-              </Badge>
             </div>
 
             <div className="rounded-2xl border border-sidebar-border/70 bg-sidebar/75 p-3">
               <div className="mb-2 flex items-center justify-between gap-2 text-xs text-sidebar-foreground/70">
                 <span>Workspace credits</span>
-                <span>{isPro ? "100%" : `${Math.round(usageValue)}%`}</span>
+                <span className="font-semibold text-sidebar-foreground/85">
+                  {isPro ? "100%" : `${Math.round(usageValue)}%`}
+                </span>
               </div>
-              <Progress
-                value={isPro ? 100 : usageValue}
-                className="gap-0"
-              />
+              <Progress value={isPro ? 100 : usageValue} className="gap-0" />
+              <p className="mt-2 text-[11px] text-sidebar-foreground/60">
+                {isPro
+                  ? "Your workspace has full access."
+                  : "Upgrade for unlimited requests."}
+              </p>
             </div>
 
             <div className="rounded-2xl border border-sidebar-border/70 bg-sidebar/75 p-3">
@@ -316,14 +327,19 @@ const Sidebar = ({ apiLimitCount = 0, isPro = false }: SidebarProps) => {
                 </div>
               </div>
 
-              <Button
-                variant={isPro ? "secondary" : "default"}
-                className="mt-4 w-full justify-between rounded-xl"
-                render={<Link to="/settings" />}
+              <Link
+                to="/settings"
+                className={cn(
+                  buttonVariants({
+                    variant: isPro ? "secondary" : "default",
+                    size: "lg",
+                  }),
+                  "mt-4 w-full justify-between rounded-xl",
+                )}
               >
                 <span>{isPro ? "Manage subscription" : "Upgrade to Pro"}</span>
                 <ChevronRight className="h-4 w-4" />
-              </Button>
+              </Link>
             </div>
           </CardContent>
         </Card>
