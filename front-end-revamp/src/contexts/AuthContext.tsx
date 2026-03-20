@@ -27,8 +27,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const response = await axiosClient.get("/auth/me");
         setUser({
-          id: response.data._id,
-          name: response.data.name,
+          id: response.data.id,
+          name: response.data.full_name,
           email: response.data.email,
         });
       } catch (error) {
@@ -43,7 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (data: any) => {
     try {
-      const response = await axiosClient.post("/auth/login", data);
+      const response = await axiosClient.post("/auth/signin", data);
       setUser({
         id: response.data._id,
         name: response.data.name,

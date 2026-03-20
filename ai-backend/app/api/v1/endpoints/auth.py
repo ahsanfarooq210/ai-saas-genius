@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
 from app.repositories.auth_repository import AuthRepository
@@ -25,10 +26,35 @@ def signup(payload: SignUpRequest, db: Session = Depends(get_db)) -> User:
 
 
 @router.post("/signin", response_model=TokenResponse)
-def signin(payload: SignInRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def signin(
+    payload: SignInRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
     auth_repository = AuthRepository(db)
     auth_service = AuthService(auth_repository)
-    return auth_service.signin(payload)
+    token_response = auth_service.signin(payload)
+
+    secure_cookie = settings.APP_ENV.lower() == "production"
+
+    response.set_cookie(
+        key="accessToken",
+        value=token_response.access_token,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="refreshToken",
+        value=token_response.refresh_token,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+    return token_response
 
 
 @router.post("/refresh", response_model=TokenResponse)
