@@ -3,6 +3,7 @@ uvicorn[standard]==0.34.0
 pydantic-settings==2.8.1
 sqlalchemy==2.0.38
 alembic==1.14.1
+psycopg2-binary==2.9.10
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
 email-validator==2.2.0
