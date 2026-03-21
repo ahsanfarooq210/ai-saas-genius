@@ -2,9 +2,9 @@ import { Link, useLocation } from "react-router-dom";
 import { useSwarmStore } from "@/features/swarm/store";
 
 const navItems = [
-  { label: "New Session", to: "/" },
-  { label: "Session History", to: "/history" },
-  { label: "Settings", to: "/settings" },
+  { label: "New Session", to: "/swarm" },
+  { label: "Session History", to: "/swarm/history" },
+  { label: "Settings", to: "/swarm/settings" },
 ];
 
 const statusDot = {

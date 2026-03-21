@@ -134,7 +134,7 @@ const SessionHistoryPage = () => {
                 onClick={() => {
                   hydrateSessionFromHistory(session.threadId);
                   setSessionStatus(session.status === "Running" ? "running" : session.status === "Failed" ? "failed" : "complete");
-                  navigate(`/session/${session.threadId}`);
+                  navigate(`/swarm/session/${session.threadId}`);
                 }}
                 className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground"
               >

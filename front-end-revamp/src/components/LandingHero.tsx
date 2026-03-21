@@ -71,9 +71,9 @@ const LandingHero = () => {
             </div>
 
             <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start">
-              <Link to={user ? "/dashboard" : "/sign-up"}>
+              <Link to={user ? "/swarm" : "/sign-up"}>
                 <Button className="h-12 rounded-full px-6 text-sm font-semibold shadow-lg shadow-primary/20 md:h-13 md:px-7 md:text-base">
-                  {user ? "Open Dashboard" : "Start Generating For Free"}
+                  {user ? "Open Swarm" : "Start Generating For Free"}
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>

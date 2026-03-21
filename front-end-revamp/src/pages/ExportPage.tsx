@@ -144,7 +144,7 @@ ${diagram.mermaid_code}\n\
       </section>
 
       <button
-        onClick={() => navigate("/")}
+        onClick={() => navigate("/swarm")}
         className="rounded-xl border border-primary bg-primary px-4 py-2 text-sm text-primary-foreground"
       >
         Start New Session

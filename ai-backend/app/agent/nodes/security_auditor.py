@@ -1,7 +1,6 @@
-# reviewer_agents.py
 from langchain_core.prompts import ChatPromptTemplate
-from graph.schema import GlobalSwarmState
-from app.agent.llm import llm
+from app.agent.state.global_swarm_state import GlobalSwarmState
+from app.agent.llm import llm_gemini
 
 SECURITY_PROMPT = """
 You are a hostile security auditor. Assume the system described below is already
@@ -29,26 +28,30 @@ STATUS: APPROVED
 STATUS: REJECTED
 """
 
-async def security_node(state: GlobalSwarmState) -> dict:
-    diagrams_text = "\n\n".join([
-        f"### {d['diagram_type']}\n```\n{d['content']}\n```"
-        for d in state.get("generated_diagrams", [])
-    ])
 
-    docs_text = "\n\n".join([
-        f"### {d['title']}\n{d['content']}"
-        for d in state.get("generated_docs", [])
-    ])
+async def security_node(state: GlobalSwarmState) -> dict:
+    diagrams_text = "\n\n".join(
+        [
+            f"### {d['diagram_type']}\n```\n{d['content']}\n```"
+            for d in state.get("generated_diagrams", [])
+        ]
+    )
+
+    docs_text = "\n\n".join(
+        [f"### {d['title']}\n{d['content']}" for d in state.get("generated_docs", [])]
+    )
 
     prompt = ChatPromptTemplate.from_template(SECURITY_PROMPT)
-    chain = prompt | llm
+    chain = prompt | llm_gemini
 
-    response = await chain.ainvoke({
-        "architecture_json": state.get("architecture_json", {}),
-        "diagrams": diagrams_text,
-        "docs": docs_text,
-        "previous_feedback": state.get("security_feedback", "None"),
-    })
+    response = await chain.ainvoke(
+        {
+            "architecture_json": state.get("architecture_json", {}),
+            "diagrams": diagrams_text,
+            "docs": docs_text,
+            "previous_feedback": state.get("security_feedback", "None"),
+        }
+    )
 
     feedback = response.content
 
@@ -56,7 +59,9 @@ async def security_node(state: GlobalSwarmState) -> dict:
     status = "APPROVED" if "STATUS: APPROVED" in feedback else "REJECTED"
 
     # Normalize the feedback string so the Supervisor can check it simply
-    normalized_feedback = feedback.replace("STATUS: APPROVED", "").replace("STATUS: REJECTED", "").strip()
+    normalized_feedback = (
+        feedback.replace("STATUS: APPROVED", "").replace("STATUS: REJECTED", "").strip()
+    )
     final_feedback = f"{normalized_feedback}\n\nSTATUS: {status}"
 
     return {"security_feedback": final_feedback}

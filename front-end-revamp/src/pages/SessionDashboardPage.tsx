@@ -173,7 +173,7 @@ const SessionDashboardPage = () => {
   const handleApproveExport = () => {
     closeHitlModal();
     completeSession();
-    navigate(`/export/${currentThreadId}`);
+    navigate(`/swarm/export/${currentThreadId}`);
   };
 
   const handleSubmitCritique = async () => {

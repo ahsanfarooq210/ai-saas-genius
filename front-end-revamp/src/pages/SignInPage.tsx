@@ -49,7 +49,7 @@ const SignInPage = () => {
     if (authError) {
       setError(authError.message || "Failed to sign in");
     } else {
-      navigate("/dashboard");
+      navigate("/swarm");
     }
   };
 
@@ -60,7 +60,7 @@ const SignInPage = () => {
         <div className="grid w-full overflow-hidden rounded-[28px] border border-border/70 bg-card/70 shadow-2xl shadow-black/8 backdrop-blur-xl lg:grid-cols-[1.05fr_0.95fr]">
           <div className="relative hidden border-r border-border/70 bg-linear-to-br from-muted/60 via-background to-background p-10 lg:flex lg:flex-col lg:justify-between">
             <div className="space-y-6">
-              <Link to="/" className="inline-flex w-fit items-center gap-3 rounded-full border border-border/70 bg-background/80 px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-background">
+              <Link to="/landing" className="inline-flex w-fit items-center gap-3 rounded-full border border-border/70 bg-background/80 px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-background">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/20">
                   <Sparkles className="h-4 w-4" />
                 </div>
@@ -105,7 +105,7 @@ const SignInPage = () => {
                   <Badge variant="outline" className="border-border/70 bg-background/80 text-muted-foreground">
                     Secure access
                   </Badge>
-                  <Link to="/" className="text-sm font-medium text-muted-foreground transition hover:text-foreground lg:hidden">
+                  <Link to="/landing" className="text-sm font-medium text-muted-foreground transition hover:text-foreground lg:hidden">
                     Back home
                   </Link>
                 </div>

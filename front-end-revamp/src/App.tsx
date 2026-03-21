@@ -5,11 +5,18 @@ import SessionDashboardPage from "@/pages/SessionDashboardPage";
 import SessionHistoryPage from "@/pages/SessionHistoryPage";
 import SwarmSettingsPage from "@/pages/SwarmSettingsPage";
 import ExportPage from "@/pages/ExportPage";
+import LandingPage from "@/pages/LandingPage";
+import SignInPage from "@/pages/SignInPage";
+import SignUpPage from "@/pages/SignUpPage";
 
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<SwarmLayout />}>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/landing" element={<Navigate to="/" replace />} />
+      <Route path="/sign-in" element={<SignInPage />} />
+      <Route path="/sign-up" element={<SignUpPage />} />
+      <Route path="/swarm" element={<SwarmLayout />}>
         <Route index element={<NewSessionPage />} />
         <Route path="session/:threadId" element={<SessionDashboardPage />} />
         <Route path="history" element={<SessionHistoryPage />} />

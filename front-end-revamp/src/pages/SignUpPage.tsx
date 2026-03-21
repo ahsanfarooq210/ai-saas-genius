@@ -52,7 +52,7 @@ const SignUpPage = () => {
     if (authError) {
       setError(authError.message || "Failed to sign up");
     } else {
-      navigate("/dashboard");
+      navigate("/swarm");
     }
   };
 
@@ -68,7 +68,7 @@ const SignUpPage = () => {
                   <Badge variant="outline" className="border-border/70 bg-background/80 text-muted-foreground">
                     New account
                   </Badge>
-                  <Link to="/" className="text-sm font-medium text-muted-foreground transition hover:text-foreground lg:hidden">
+                  <Link to="/landing" className="text-sm font-medium text-muted-foreground transition hover:text-foreground lg:hidden">
                     Back home
                   </Link>
                 </div>
@@ -167,7 +167,7 @@ const SignUpPage = () => {
 
           <div className="relative hidden border-l border-border/70 bg-linear-to-br from-background via-muted/50 to-background p-10 lg:flex lg:flex-col lg:justify-between">
             <div className="space-y-6">
-              <Link to="/" className="inline-flex w-fit items-center gap-3 rounded-full border border-border/70 bg-background/80 px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-background">
+              <Link to="/landing" className="inline-flex w-fit items-center gap-3 rounded-full border border-border/70 bg-background/80 px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-background">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/20">
                   <Sparkles className="h-4 w-4" />
                 </div>

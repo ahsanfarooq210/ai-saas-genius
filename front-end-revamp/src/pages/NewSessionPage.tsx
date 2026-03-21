@@ -36,7 +36,7 @@ const NewSessionPage = () => {
     try {
       const response = await swarmApi.start(trimmed);
       startSession(response.thread_id, trimmed);
-      navigate(`/session/${response.thread_id}`);
+      navigate(`/swarm/session/${response.thread_id}`);
     } catch (submitError: unknown) {
       setError("Failed to start swarm session. Check backend connection and try again.");
       console.error(submitError);
