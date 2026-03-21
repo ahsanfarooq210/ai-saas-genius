@@ -1,4 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
+from app.agent.review_parsing import terminal_review_status
 from app.agent.state.global_swarm_state import GlobalSwarmState
 from app.agent.llm import llm_gemini
 
@@ -30,15 +31,21 @@ STATUS: REJECTED
 
 
 async def security_node(state: GlobalSwarmState) -> dict:
-    diagrams_text = "\n\n".join(
-        [
-            f"### {d['diagram_type']}\n```\n{d['content']}\n```"
-            for d in state.get("generated_diagrams", [])
-        ]
+    diagrams_text = (
+        "\n\n".join(
+            [
+                f"### {d['diagram_type']}\n```\n{d['content']}\n```"
+                for d in state.get("generated_diagrams", [])
+            ]
+        )
+        or "No diagrams generated yet."
     )
 
-    docs_text = "\n\n".join(
-        [f"### {d['title']}\n{d['content']}" for d in state.get("generated_docs", [])]
+    docs_text = (
+        "\n\n".join(
+            [f"### {d['title']}\n{d['content']}" for d in state.get("generated_docs", [])]
+        )
+        or "No documents generated yet."
     )
 
     prompt = ChatPromptTemplate.from_template(SECURITY_PROMPT)
@@ -55,13 +62,12 @@ async def security_node(state: GlobalSwarmState) -> dict:
 
     feedback = response.content
 
-    # Parse STATUS out of the response
-    status = "APPROVED" if "STATUS: APPROVED" in feedback else "REJECTED"
+    status = terminal_review_status(feedback)
+    label = "APPROVED" if status == "approved" else "REJECTED"
 
-    # Normalize the feedback string so the Supervisor can check it simply
     normalized_feedback = (
         feedback.replace("STATUS: APPROVED", "").replace("STATUS: REJECTED", "").strip()
     )
-    final_feedback = f"{normalized_feedback}\n\nSTATUS: {status}"
+    final_feedback = f"{normalized_feedback}\n\n---\n\nSTATUS: {label}"
 
     return {"security_feedback": final_feedback}

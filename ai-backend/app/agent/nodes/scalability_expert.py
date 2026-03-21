@@ -1,8 +1,9 @@
 from app.agent.llm import llm_gemini
 from langchain_core.prompts import ChatPromptTemplate
+from app.agent.review_parsing import terminal_review_status
 from app.agent.state.global_swarm_state import GlobalSwarmState
 
-llm  = llm_gemini
+llm = llm_gemini
 
 SCALABILITY_PROMPT = """
 You are a hostile scalability expert and performance engineer. Your job is to
@@ -91,20 +92,16 @@ async def scalability_node(state: GlobalSwarmState) -> dict:
 
     feedback = response.content
 
-    # Parse STATUS — default to REJECTED if the model forgot to include it
-    if "STATUS: APPROVED" in feedback:
-        status = "APPROVED"
-    elif "STATUS: REJECTED" in feedback:
-        status = "REJECTED"
+    status = terminal_review_status(feedback)
+    if status == "approved":
+        label = "APPROVED"
     else:
-        status = (
-            "REJECTED"  # safe default — never silently approve a malformed response
-        )
+        # rejected, pending, or ambiguous → never silently approve
+        label = "REJECTED"
 
-    # Strip the raw STATUS line and re-attach in a normalized format
     normalized = (
         feedback.replace("STATUS: APPROVED", "").replace("STATUS: REJECTED", "").strip()
     )
-    final_feedback = f"{normalized}\n\n---\n\nSTATUS: {status}"
+    final_feedback = f"{normalized}\n\n---\n\nSTATUS: {label}"
 
     return {"scalability_feedback": final_feedback}

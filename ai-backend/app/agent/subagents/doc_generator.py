@@ -1,12 +1,14 @@
 # graph/doc_generator_graph.py
-from app.agent.state.doc_worker_state import DocEntry
+import json
+import re
+
 from app.agent.llm import llm_gemini
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
 from langgraph.types import Send
 
-from app.agent.state.global_swarm_state import GlobalSwarmState
 from app.agent.state.doc_worker_state import DocWorkerState
+from app.agent.state.global_swarm_state import DocEntry, GlobalSwarmState
 from app.services.uploadthing_service import UploadThingService
 
 # from app.agent.storage.file_store import FileStore
@@ -62,7 +64,7 @@ architecture JSON. Do not write placeholder text.
 """
 
 
-async def doc_planner_node(state: GlobalSwarmState) -> list[Send]:
+async def doc_planner_node(state: GlobalSwarmState) -> dict:
     prompt = ChatPromptTemplate.from_template(DOC_PLANNER_PROMPT)
     chain = prompt | llm_gemini
     response = await chain.ainvoke(
@@ -73,14 +75,21 @@ async def doc_planner_node(state: GlobalSwarmState) -> list[Send]:
         }
     )
 
-    import json
-
     raw = response.content.strip()
     try:
         doc_plan: list[str] = json.loads(raw)
     except json.JSONDecodeError:
         doc_plan = ["overview.md"]
 
+    if not doc_plan:
+        doc_plan = ["overview.md"]
+
+    return {"doc_plan": doc_plan}
+
+
+def route_from_doc_planner(state: GlobalSwarmState) -> list[Send]:
+    """Map-reduce fan-out per LangGraph Send API (conditional edge, not node return)."""
+    slugs = state.get("doc_plan") or ["overview.md"]
     return [
         Send(
             "doc_generator_node",
@@ -95,7 +104,7 @@ async def doc_planner_node(state: GlobalSwarmState) -> list[Send]:
                 draft_content="",
             ),
         )
-        for slug in doc_plan
+        for slug in slugs
     ]
 
 
@@ -139,10 +148,15 @@ async def doc_generator_node(state: DocWorkerState) -> dict:
     }
 
 
+def _slug_from_report_path(path: str) -> str:
+    """Recover doc filename from reports/{{thread_id}}/iter{{n}}_{{slug}} (thread_id may contain _)."""
+    fname = path.rsplit("/", 1)[-1]
+    m = re.match(r"^iter\d+_(.+)$", fname)
+    return m.group(1) if m else fname
+
+
 async def write_doc_node(state: GlobalSwarmState) -> dict:
-    actual_slugs = [
-        d["path"].split("_", 1)[-1] for d in state["generated_docs"]
-    ]
+    actual_slugs = [_slug_from_report_path(d["path"]) for d in state["generated_docs"]]
     return {"doc_plan": actual_slugs, "docs_complete": True}
 
 
@@ -155,7 +169,11 @@ def build_doc_generator_graph():
 
     graph.set_entry_point("doc_planner_node")
 
-    graph.add_edge("doc_planner_node", "doc_generator_node")
+    graph.add_conditional_edges(
+        "doc_planner_node",
+        route_from_doc_planner,
+        ["doc_generator_node"],
+    )
     graph.add_edge("doc_generator_node", "write_doc_node")
     graph.add_edge("write_doc_node", END)
 

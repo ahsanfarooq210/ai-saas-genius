@@ -1,23 +1,7 @@
-# graph/schema.py  (add these alongside GlobalSwarmState)
-from typing import TypedDict, Annotated, Optional
-import operator
+# Worker payload for LangGraph Send() map-reduce — shared schema types live in global_swarm_state.
+from typing import TypedDict
 
-
-class DocEntry(TypedDict):
-    title: str  # human-readable title e.g. "Auth Service — Component Overview"
-    content: str  # raw Markdown string
-    path: str  # file store key e.g. "reports/{thread_id}/iter2_auth-service.md"
-
-
-# graph/schema.py  (add alongside DocEntry and DocWorkerState)
-
-
-class DiagramEntry(TypedDict):
-    diagram_type: str  # controlled vocabulary: "overview" | "auth-flow" | "db-schema" |
-    # "infra" | "data-pipeline" | "api-contracts" | "event-flow" | "deployment"
-    content: str  # raw Mermaid string — set to "syntax_error" if linter failed 3x
-    path: str  # file store key e.g. "diagrams/{thread_id}/iter2_overview.mmd"
-    iteration: int  # which swarm iteration produced this diagram
+from app.agent.state.global_swarm_state import DiagramEntry
 
 
 class DocWorkerState(TypedDict):
