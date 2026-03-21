@@ -1,6 +1,6 @@
 from enum import Enum
+from typing import Any
 
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, StateGraph
 
 from app.agent.review_parsing import terminal_review_status
@@ -61,7 +61,7 @@ def route_supervisor(state: GlobalSwarmState) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def build_swarm_graph(checkpointer: AsyncPostgresSaver = None):
+def build_swarm_graph(checkpointer: Any = None):
     graph = StateGraph(GlobalSwarmState)
 
     # ── Register nodes ────────────────────────────────────────────────────────

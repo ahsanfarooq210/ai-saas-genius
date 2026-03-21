@@ -1,8 +1,38 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from app.services.swarm_service import init_swarm_graph
+
+    pg_uri = settings.langgraph_postgres_uri()
+    if pg_uri:
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+        logger.info("Initializing LangGraph AsyncPostgresSaver for swarm checkpoints")
+        async with AsyncPostgresSaver.from_conn_string(pg_uri) as checkpointer:
+            await checkpointer.setup()
+            init_swarm_graph(checkpointer)
+            yield
+    else:
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        logger.warning(
+            "DATABASE_URL is SQLite or unset for Postgres — using InMemorySaver for swarm checkpoints "
+            "(thread state is not persisted across process restarts). "
+            "Set DATABASE_URL to postgresql://... for Postgres-backed short-term memory."
+        )
+        init_swarm_graph(InMemorySaver())
+        yield
 
 
 def create_application() -> FastAPI:
@@ -11,6 +41,7 @@ def create_application() -> FastAPI:
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
     application.add_middleware(

@@ -13,4 +13,6 @@ httpx==0.28.1
 langchain-google-genai
 langgraph
 langchain
+langgraph-checkpoint-postgres
+psycopg[binary,pool]
 

@@ -3,6 +3,7 @@ import json
 import re
 
 from app.agent.llm import llm_gemini
+from app.agent.message_content import message_content_to_str
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
 from langgraph.types import Send
@@ -54,9 +55,9 @@ Context you have access to:
 
 Document type guide:
 - overview.md        → executive summary, system purpose, key design decisions, high-level diagram reference
-- {component}.md     → component responsibilities, interfaces, data flow, dependencies, failure modes
-- adr-{title}.md     → Architecture Decision Record: context, decision, consequences, alternatives considered
-- runbook-{title}.md → step-by-step operational guide: when to use, prerequisites, steps, rollback
+- {{component}}.md     → component responsibilities, interfaces, data flow, dependencies, failure modes
+- adr-{{title}}.md     → Architecture Decision Record: context, decision, consequences, alternatives considered
+- runbook-{{title}}.md → step-by-step operational guide: when to use, prerequisites, steps, rollback
 
 Write complete, production-quality documentation. Use headers, bullet points,
 and code blocks where appropriate. Reference specific component names from the
@@ -75,7 +76,7 @@ async def doc_planner_node(state: GlobalSwarmState) -> dict:
         }
     )
 
-    raw = response.content.strip()
+    raw = message_content_to_str(response.content).strip()
     try:
         doc_plan: list[str] = json.loads(raw)
     except json.JSONDecodeError:
@@ -131,7 +132,7 @@ async def doc_generator_node(state: DocWorkerState) -> dict:
         }
     )
 
-    content = response.content.strip()
+    content = message_content_to_str(response.content).strip()
     title = (
         state["doc_slug"].replace(".md", "").replace("-", " ").replace("_", " ").title()
     )

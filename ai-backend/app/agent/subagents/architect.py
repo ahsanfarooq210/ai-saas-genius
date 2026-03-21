@@ -9,6 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
 
 from app.agent.llm import llm_gemini
+from app.agent.message_content import message_content_to_str
 from app.agent.state.global_swarm_state import DiagramEntry, GlobalSwarmState
 
 ARCHITECT_PROMPT = """You are a senior systems architect.
@@ -63,7 +64,7 @@ async def architect_node(state: GlobalSwarmState) -> dict:
     prompt = ChatPromptTemplate.from_template(ARCHITECT_PROMPT)
     chain = prompt | llm_gemini
     response = await chain.ainvoke({"task_requirement": state["task_requirement"]})
-    raw = _strip_json_fence(response.content)
+    raw = _strip_json_fence(message_content_to_str(response.content))
 
     try:
         data = json.loads(raw)

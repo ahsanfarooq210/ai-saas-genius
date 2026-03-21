@@ -1,4 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
+from app.agent.message_content import message_content_to_str
 from app.agent.review_parsing import terminal_review_status
 from app.agent.state.global_swarm_state import GlobalSwarmState
 from app.agent.llm import llm_gemini
@@ -60,7 +61,7 @@ async def security_node(state: GlobalSwarmState) -> dict:
         }
     )
 
-    feedback = response.content
+    feedback = message_content_to_str(response.content)
 
     status = terminal_review_status(feedback)
     label = "APPROVED" if status == "approved" else "REJECTED"
