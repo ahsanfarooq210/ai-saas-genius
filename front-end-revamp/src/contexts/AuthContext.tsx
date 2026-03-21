@@ -104,7 +104,7 @@ export const useSession = () => {
 
 export const authClient = {
   signIn: {
-    email: async (data: any) => {
+    email: async (_data: any) => {
       // This is a bit hacky because we need access to the context outside of a hook for sign in
       // However, looking at the code, SignInPage actually uses it inside the component.
       // A better approach is to provide signIn from useAuth in SignInPage.
@@ -114,7 +114,7 @@ export const authClient = {
     }
   },
   signUp: {
-    email: async (data: any) => {
+    email: async (_data: any) => {
       throw new Error("Use useAuth() signUp instead of authClient.signUp.email");
     }
   },
