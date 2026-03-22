@@ -11,6 +11,7 @@ from langgraph.graph import END, StateGraph
 from app.agent.llm import llm_gemini
 from app.agent.message_content import message_content_to_str
 from app.agent.state.global_swarm_state import DiagramEntry, GlobalSwarmState
+from app.services.uploadthing_service import UploadThingService
 
 ARCHITECT_PROMPT = """You are a senior systems architect.
 
@@ -101,6 +102,8 @@ async def architect_node(state: GlobalSwarmState) -> dict:
     iteration = int(state.get("iteration_count", 0) or 0)
     thread_id = state["thread_id"]
     path = f"diagrams/{thread_id}/iter{iteration}_overview.mmd"
+
+    await UploadThingService().upload_file(path, mermaid)
 
     overview: DiagramEntry = {
         "diagram_type": "overview",
