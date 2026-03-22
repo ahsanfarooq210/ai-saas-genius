@@ -1,16 +1,16 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sse_starlette.sse import EventSourceResponse
 
-from app.schemas.agent import AgentGraphMermaidResponse, SwarmRunRequest, SwarmRunResponse
+from app.api.deps import get_current_user
+from app.schemas.agent import AgentGraphMermaidResponse, SwarmRunResponse
 from app.services.swarm_service import (
     get_agent_graph_mermaid,
     get_swarm_graph_png,
     iter_swarm_sse_events,
-    run_swarm,
-    swarm_state_to_run_response,
+    run_swarm_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ router.get(
         "`compiled.get_graph().draw_mermaid()` in the LangGraph / LangChain Graph API). "
         "Use `xray=true` to expand nested subgraphs when supported."
     ),
+    dependencies=[Depends(get_current_user)],
 )(get_agent_graph_mermaid)
 
 
@@ -42,6 +43,7 @@ router.get(
         200: {"content": {"image/png": {}}},
         503: {"description": "PNG rendering unavailable (renderer missing or failed)."},
     },
+    dependencies=[Depends(get_current_user)],
 )
 async def get_agent_graph_image(xray: bool = False) -> Response:
     try:
@@ -65,7 +67,7 @@ async def get_agent_graph_image(xray: bool = False) -> Response:
     )
 
 
-@router.post(
+router.post(
     "/run",
     response_model=SwarmRunResponse,
     status_code=status.HTTP_200_OK,
@@ -74,22 +76,8 @@ async def get_agent_graph_image(xray: bool = False) -> Response:
         "Executes the full supervisor graph (architect → docs → scalability → security) "
         "until completion or iteration limit. This call may take a long time and invokes LLMs."
     ),
-)
-async def run_swarm_endpoint(payload: SwarmRunRequest) -> SwarmRunResponse:
-    try:
-        state = await run_swarm(
-            task_requirement=payload.task_requirement,
-            thread_id=payload.thread_id,
-            user_id=payload.user_id,
-        )
-    except Exception as exc:
-        logger.exception("Swarm run failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Swarm execution failed. See server logs.",
-        ) from exc
-
-    return swarm_state_to_run_response(state)
+    dependencies=[Depends(get_current_user)],
+)(run_swarm_request)
 
 
 @router.get(
@@ -101,6 +89,7 @@ async def run_swarm_endpoint(payload: SwarmRunRequest) -> SwarmRunResponse:
         "Pass `task_requirement` to start a new run for this `thread_id`; omit it to resume "
         "from the last checkpoint for that thread only."
     ),
+    dependencies=[Depends(get_current_user)],
 )
 async def stream_swarm(
     thread_id: str,

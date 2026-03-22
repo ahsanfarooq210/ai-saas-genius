@@ -12,7 +12,7 @@ from fastapi import HTTPException, status
 
 from app.agent.agent import build_swarm_graph
 from app.agent.state.global_swarm_state import GlobalSwarmState, initial_state
-from app.schemas.agent import AgentGraphMermaidResponse, SwarmRunResponse
+from app.schemas.agent import AgentGraphMermaidResponse, SwarmRunRequest, SwarmRunResponse
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,23 @@ async def run_swarm(
     }
     result = await graph.ainvoke(state, config=config)
     return result  # type: ignore[return-value]
+
+
+async def run_swarm_request(payload: SwarmRunRequest) -> SwarmRunResponse:
+    """HTTP-facing swarm run: executes the graph and returns the public response model."""
+    try:
+        state = await run_swarm(
+            task_requirement=payload.task_requirement,
+            thread_id=payload.thread_id,
+            user_id=payload.user_id,
+        )
+    except Exception as exc:
+        logger.exception("Swarm run failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Swarm execution failed. See server logs.",
+        ) from exc
+    return swarm_state_to_run_response(state)
 
 
 async def astream_swarm(
