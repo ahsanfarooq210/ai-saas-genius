@@ -1,4 +1,3 @@
-import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -7,11 +6,11 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.schemas.agent import AgentGraphMermaidResponse, SwarmRunRequest, SwarmRunResponse
 from app.services.swarm_service import (
-    astream_swarm,
-    get_swarm_graph_mermaid,
+    get_agent_graph_mermaid,
     get_swarm_graph_png,
+    iter_swarm_sse_events,
     run_swarm,
-    unpack_astream_item,
+    swarm_state_to_run_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get(
+router.get(
     "/graph/mermaid",
     response_model=AgentGraphMermaidResponse,
     summary="Swarm graph as Mermaid text",
@@ -28,17 +27,7 @@ router = APIRouter()
         "`compiled.get_graph().draw_mermaid()` in the LangGraph / LangChain Graph API). "
         "Use `xray=true` to expand nested subgraphs when supported."
     ),
-)
-async def get_agent_graph_mermaid(xray: bool = False) -> AgentGraphMermaidResponse:
-    try:
-        text = get_swarm_graph_mermaid(xray=xray)
-    except Exception as exc:
-        logger.exception("Failed to build Mermaid for swarm graph")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not generate Mermaid diagram.",
-        ) from exc
-    return AgentGraphMermaidResponse(mermaid=text)
+)(get_agent_graph_mermaid)
 
 
 @router.get(
@@ -100,33 +89,7 @@ async def run_swarm_endpoint(payload: SwarmRunRequest) -> SwarmRunResponse:
             detail="Swarm execution failed. See server logs.",
         ) from exc
 
-    return SwarmRunResponse(
-        thread_id=state["thread_id"],
-        user_id=state.get("user_id"),
-        task_requirement=state["task_requirement"],
-        iteration_count=state["iteration_count"],
-        docs_complete=state["docs_complete"],
-        next_agent=str(state.get("next_agent", "")),
-        current_architecture_mermaid=state["current_architecture_mermaid"],
-        architecture_json=state["architecture_json"],
-        component_list=state["component_list"],
-        complexity_score=state["complexity_score"],
-        diagram_plan=state["diagram_plan"],
-        doc_plan=state["doc_plan"],
-        generated_diagrams=[dict(d) for d in state["generated_diagrams"]],
-        generated_docs=[dict(d) for d in state["generated_docs"]],
-        scalability_feedback=state["scalability_feedback"],
-        security_feedback=state["security_feedback"],
-        current_stage=state.get("current_stage", ""),
-        current_task=state.get("current_task", ""),
-        progress_message=state.get("progress_message", ""),
-        active_item_type=state.get("active_item_type", ""),
-        active_item_name=state.get("active_item_name", ""),
-        completed_diagram_count=state.get("completed_diagram_count", 0),
-        completed_doc_count=state.get("completed_doc_count", 0),
-        total_diagram_count=state.get("total_diagram_count", 0),
-        total_doc_count=state.get("total_doc_count", 0),
-    )
+    return swarm_state_to_run_response(state)
 
 
 @router.get(
@@ -149,31 +112,11 @@ async def stream_swarm(
     ),
     user_id: str | None = Query(default=None, max_length=256),
 ) -> EventSourceResponse:
-    async def generator():
-        try:
-            async for item in astream_swarm(
-                thread_id=thread_id,
-                task_requirement=task_requirement,
-                user_id=user_id,
-            ):
-                if await request.is_disconnected():
-                    break
-                mode, chunk = unpack_astream_item(item)
-                if mode == "updates":
-                    yield {
-                        "event": "state_update",
-                        "data": json.dumps(chunk, default=str),
-                    }
-                elif mode == "custom":
-                    yield {
-                        "event": "progress",
-                        "data": json.dumps(chunk, default=str),
-                    }
-        except Exception as exc:
-            logger.exception("Swarm stream failed")
-            yield {
-                "event": "error",
-                "data": json.dumps({"message": str(exc)}, default=str),
-            }
-
-    return EventSourceResponse(generator())
+    return EventSourceResponse(
+        iter_swarm_sse_events(
+            thread_id=thread_id,
+            task_requirement=task_requirement,
+            user_id=user_id,
+            is_disconnected=request.is_disconnected,
+        )
+    )

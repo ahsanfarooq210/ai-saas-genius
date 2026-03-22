@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
+
+from fastapi import HTTPException, status
 
 from app.agent.agent import build_swarm_graph
 from app.agent.state.global_swarm_state import GlobalSwarmState, initial_state
+from app.schemas.agent import AgentGraphMermaidResponse, SwarmRunResponse
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +111,87 @@ def get_swarm_graph_mermaid(*, xray: bool = False) -> str:
     return _get_structure_graph(xray=xray).draw_mermaid()
 
 
+def get_agent_graph_mermaid(*, xray: bool = False) -> AgentGraphMermaidResponse:
+    """API response: swarm graph as Mermaid text (logs and maps failures to HTTP 500)."""
+    try:
+        text = get_swarm_graph_mermaid(xray=xray)
+    except Exception as exc:
+        logger.exception("Failed to build Mermaid for swarm graph")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not generate Mermaid diagram.",
+        ) from exc
+    return AgentGraphMermaidResponse(mermaid=text)
+
+
 def get_swarm_graph_png(*, xray: bool = False) -> bytes:
     """PNG bytes for the graph diagram (requires a working renderer; see LangGraph docs)."""
     return _get_structure_graph(xray=xray).draw_mermaid_png()
+
+
+def swarm_state_to_run_response(state: GlobalSwarmState) -> SwarmRunResponse:
+    """Map final graph state to the public HTTP response model."""
+    return SwarmRunResponse(
+        thread_id=state["thread_id"],
+        user_id=state.get("user_id"),
+        task_requirement=state["task_requirement"],
+        iteration_count=state["iteration_count"],
+        docs_complete=state["docs_complete"],
+        next_agent=str(state.get("next_agent", "")),
+        current_architecture_mermaid=state["current_architecture_mermaid"],
+        architecture_json=state["architecture_json"],
+        component_list=state["component_list"],
+        complexity_score=state["complexity_score"],
+        diagram_plan=state["diagram_plan"],
+        doc_plan=state["doc_plan"],
+        generated_diagrams=[dict(d) for d in state["generated_diagrams"]],
+        generated_docs=[dict(d) for d in state["generated_docs"]],
+        scalability_feedback=state["scalability_feedback"],
+        security_feedback=state["security_feedback"],
+        current_stage=state.get("current_stage", ""),
+        current_task=state.get("current_task", ""),
+        progress_message=state.get("progress_message", ""),
+        active_item_type=state.get("active_item_type", ""),
+        active_item_name=state.get("active_item_name", ""),
+        completed_diagram_count=state.get("completed_diagram_count", 0),
+        completed_doc_count=state.get("completed_doc_count", 0),
+        total_diagram_count=state.get("total_diagram_count", 0),
+        total_doc_count=state.get("total_doc_count", 0),
+    )
+
+
+async def iter_swarm_sse_events(
+    *,
+    thread_id: str,
+    task_requirement: str | None = None,
+    user_id: str | None = None,
+    is_disconnected: Callable[[], Awaitable[bool]] | None = None,
+) -> AsyncIterator[dict[str, str]]:
+    """
+    Async iterator of SSE payloads for `EventSourceResponse` (`event` + JSON `data`).
+    """
+    try:
+        async for item in astream_swarm(
+            thread_id=thread_id,
+            task_requirement=task_requirement,
+            user_id=user_id,
+        ):
+            if is_disconnected is not None and await is_disconnected():
+                break
+            mode, chunk = unpack_astream_item(item)
+            if mode == "updates":
+                yield {
+                    "event": "state_update",
+                    "data": json.dumps(chunk, default=str),
+                }
+            elif mode == "custom":
+                yield {
+                    "event": "progress",
+                    "data": json.dumps(chunk, default=str),
+                }
+    except Exception as exc:
+        logger.exception("Swarm stream failed")
+        yield {
+            "event": "error",
+            "data": json.dumps({"message": str(exc)}, default=str),
+        }
