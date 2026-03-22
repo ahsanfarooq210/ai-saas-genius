@@ -49,3 +49,14 @@ class SwarmRunResponse(BaseModel):
     generated_docs: List[Dict[str, Any]]
     scalability_feedback: str
     security_feedback: str
+
+    # Progress metadata (mirrors `GlobalSwarmState` progress section)
+    current_stage: str = ""
+    current_task: str = ""
+    progress_message: str = ""
+    active_item_type: str = ""
+    active_item_name: str = ""
+    completed_diagram_count: int = 0
+    completed_doc_count: int = 0
+    total_diagram_count: int = 0
+    total_doc_count: int = 0

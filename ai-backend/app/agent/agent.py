@@ -5,6 +5,7 @@ from langgraph.graph import END, StateGraph
 
 from app.agent.review_parsing import terminal_review_status
 from app.agent.state.global_swarm_state import GlobalSwarmState
+from app.agent.streaming import emit_custom_event
 from app.agent.subagents.architect import architect_graph
 from app.agent.subagents.doc_generator import doc_generator_graph
 from app.agent.nodes.scalability_expert import scalability_node
@@ -28,24 +29,89 @@ async def supervisor_node(state: GlobalSwarmState) -> dict:
     # Routing evaluated strictly in priority order
     iteration = state.get("iteration_count", 0) + 1
 
+    if iteration == 1:
+        emit_custom_event(
+            {
+                "event": "workflow_started",
+                "type": "progress",
+                "stage": "supervisor",
+                "status": "started",
+                "message": "Architecture swarm started",
+            }
+        )
+
     if iteration > 5:
-        return {"next_agent": NextAgent.end, "iteration_count": iteration}
+        emit_custom_event(
+            {
+                "event": "workflow_completed",
+                "type": "progress",
+                "stage": "done",
+                "status": "completed",
+                "message": "Workflow completed (iteration limit)",
+            }
+        )
+        return {
+            "next_agent": NextAgent.end,
+            "iteration_count": iteration,
+            "current_stage": "done",
+            "current_task": "Finished",
+            "progress_message": "Workflow completed",
+        }
 
     if not state.get("current_architecture_mermaid"):
-        return {"next_agent": NextAgent.architect, "iteration_count": iteration}
+        return {
+            "next_agent": NextAgent.architect,
+            "iteration_count": iteration,
+            "current_stage": "architect",
+            "current_task": "Designing architecture",
+            "progress_message": "Creating system architecture and complexity analysis",
+        }
 
     if not state.get("docs_complete"):
-        return {"next_agent": NextAgent.docs, "iteration_count": iteration}
+        return {
+            "next_agent": NextAgent.docs,
+            "iteration_count": iteration,
+            "current_stage": "docs",
+            "current_task": "Generating documentation",
+            "progress_message": "Creating markdown documentation files",
+        }
 
     scalability_feedback = state.get("scalability_feedback", "")
     if terminal_review_status(scalability_feedback) != "approved":
-        return {"next_agent": NextAgent.scalability, "iteration_count": iteration}
+        return {
+            "next_agent": NextAgent.scalability,
+            "iteration_count": iteration,
+            "current_stage": "scalability",
+            "current_task": "Running scalability review",
+            "progress_message": "Reviewing architecture for bottlenecks and SPOFs",
+        }
 
     security_feedback = state.get("security_feedback", "")
     if terminal_review_status(security_feedback) != "approved":
-        return {"next_agent": NextAgent.security, "iteration_count": iteration}
+        return {
+            "next_agent": NextAgent.security,
+            "iteration_count": iteration,
+            "current_stage": "security",
+            "current_task": "Running security review",
+            "progress_message": "Auditing architecture for security risks",
+        }
 
-    return {"next_agent": NextAgent.end, "iteration_count": iteration}
+    emit_custom_event(
+        {
+            "event": "workflow_completed",
+            "type": "progress",
+            "stage": "done",
+            "status": "completed",
+            "message": "All reviews approved",
+        }
+    )
+    return {
+        "next_agent": NextAgent.end,
+        "iteration_count": iteration,
+        "current_stage": "done",
+        "current_task": "Finished",
+        "progress_message": "All reviews approved",
+    }
 
 
 def route_supervisor(state: GlobalSwarmState) -> str:

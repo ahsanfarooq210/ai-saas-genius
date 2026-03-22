@@ -1,12 +1,13 @@
 import { create } from "zustand";
 import type {
   AgentCardState,
-  DebateEntry,
   DiagramEntry,
   DocEntry,
+  ReviewVerdict,
   SessionHistoryItem,
   SessionStatus,
-  SwarmStateDiff,
+  SessionSnapshot,
+  SwarmStage,
 } from "@/features/swarm/types";
 
 interface SettingsState {
@@ -21,15 +22,25 @@ interface SwarmStoreState {
   threadId: string | null;
   requirement: string;
   sessionStatus: SessionStatus;
+  stage: SwarmStage;
   iterationCount: number;
   maxIterations: number;
+  phaseLabel: string;
   complexityScore: number | null;
-  architectureJson: Record<string, unknown> | null;
+  componentList: string[];
+  diagramPlan: string[];
+  docPlan: string[];
+  totalDiagrams: number;
+  completedDiagrams: number;
+  totalDocs: number;
+  completedDocs: number;
   generatedDiagrams: DiagramEntry[];
   generatedDocs: DocEntry[];
-  debateLog: DebateEntry[];
-  docPlan: string[];
-  diagramPlan: string[];
+  scalabilityVerdict: ReviewVerdict | null;
+  securityVerdict: ReviewVerdict | null;
+  timeoutMessage: string | null;
+  errorMessage: string | null;
+  architectureJson: Record<string, unknown> | null;
   agentStates: {
     architect: AgentCardState;
     scalability: AgentCardState;
@@ -42,25 +53,57 @@ interface SwarmStoreState {
     maxAttempts: number;
     permanentlyFailed: boolean;
   };
-  hitlModalOpen: boolean;
-  hitlCritiqueOpen: boolean;
-  phaseLabel: string;
   settings: SettingsState;
   sessionHistory: SessionHistoryItem[];
-  exportReady: boolean;
   startSession: (threadId: string, requirement: string) => void;
   resetForNewSession: () => void;
   setSessionStatus: (status: SessionStatus) => void;
   setConnection: (connected: boolean) => void;
   setReconnecting: (reconnecting: boolean, attempts: number, failed: boolean) => void;
-  setArchitectTask: (task: string) => void;
-  setReviewerActive: (agent: "scalability" | "security", task: string) => void;
-  applyStateDiff: (node: string, diff: SwarmStateDiff) => void;
-  openHitlModal: () => void;
-  closeHitlModal: () => void;
-  setHitlCritiqueOpen: (open: boolean) => void;
-  completeSession: () => void;
-  setExportReady: (ready: boolean) => void;
+  setStage: (stage: SwarmStage, label?: string) => void;
+  setTimeoutMessage: (message: string | null) => void;
+  setErrorMessage: (message: string | null) => void;
+  setArchitectStarted: (message?: string) => void;
+  setArchitectureReady: (payload: {
+    message?: string;
+    complexityScore?: number;
+    componentList?: string[];
+    diagramPlan?: string[];
+    docPlan?: string[];
+    totalDiagrams?: number;
+  }) => void;
+  setDocPlan: (payload: { message?: string; docPlan?: string[]; totalDocs?: number }) => void;
+  updateDocItem: (payload: {
+    slug?: string;
+    status: "pending" | "generating" | "done";
+    title?: string;
+    path?: string;
+    completedDocs?: number;
+    totalDocs?: number;
+  }) => void;
+  updateDiagramItem: (payload: {
+    type?: string;
+    status: "pending" | "generating" | "done" | "failed";
+    path?: string;
+    completedDiagrams?: number;
+    totalDiagrams?: number;
+  }) => void;
+  setReviewerState: (agent: "scalability" | "security", payload: {
+    reviewing?: boolean;
+    message?: string;
+    verdict?: ReviewVerdict;
+    iteration?: number;
+  }) => void;
+  finalizeRun: (payload: {
+    complexityScore?: number;
+    iterationCount?: number;
+    diagramCount?: number;
+    docCount?: number;
+    diagrams?: Array<{ type: string; path: string }>;
+    docs?: Array<{ title: string; path: string }>;
+    scalabilityVerdict?: ReviewVerdict;
+    securityVerdict?: ReviewVerdict;
+  }) => void;
   updateSettings: (settings: Partial<SettingsState>) => void;
   hydrateSettings: () => void;
   saveSessionHistoryItem: () => void;
@@ -79,104 +122,104 @@ const defaultSettings: SettingsState = {
   autoScrollDebate: true,
 };
 
-const baseAgentState = (model: string): AgentCardState => ({
+const baseAgentState = (): AgentCardState => ({
   state: "idle",
-  model,
+  model: "LangGraph Agent",
   currentTask: "",
   lastIteration: 0,
 });
 
-const parseFeedback = (feedback: string): { status: "APPROVED" | "REJECTED"; markdown: string } => {
-  const normalized = feedback.trim();
-  const status = /status\s*:\s*approved|\bapproved\b/i.test(normalized)
-    ? "APPROVED"
-    : "REJECTED";
-  return {
-    status,
-    markdown: normalized,
-  };
-};
-
-const toDocPlan = (value: unknown): string[] => {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item));
-  }
-  return [];
-};
-
-export const useSwarmStore = create<SwarmStoreState>((set) => ({
-  threadId: null,
+const initialState = () => ({
+  threadId: null as string | null,
   requirement: "",
-  sessionStatus: "idle",
+  sessionStatus: "idle" as SessionStatus,
+  stage: "idle" as SwarmStage,
   iterationCount: 0,
   maxIterations: 5,
-  complexityScore: null,
-  architectureJson: null,
-  generatedDiagrams: [],
-  generatedDocs: [],
-  debateLog: [],
-  docPlan: [],
-  diagramPlan: [],
+  phaseLabel: "Awaiting session start",
+  complexityScore: null as number | null,
+  componentList: [] as string[],
+  diagramPlan: [] as string[],
+  docPlan: [] as string[],
+  totalDiagrams: 0,
+  completedDiagrams: 0,
+  totalDocs: 0,
+  completedDocs: 0,
+  generatedDiagrams: [] as DiagramEntry[],
+  generatedDocs: [] as DocEntry[],
+  scalabilityVerdict: null as ReviewVerdict | null,
+  securityVerdict: null as ReviewVerdict | null,
+  timeoutMessage: null as string | null,
+  errorMessage: null as string | null,
+  architectureJson: null as Record<string, unknown> | null,
   agentStates: {
-    architect: baseAgentState("GPT-4o"),
-    scalability: baseAgentState("GPT-4o"),
-    security: baseAgentState("GPT-4o"),
+    architect: baseAgentState(),
+    scalability: baseAgentState(),
+    security: baseAgentState(),
   },
   connection: {
     connected: false,
     reconnecting: false,
     attempts: 0,
-    maxAttempts: 10,
+    maxAttempts: 2,
     permanentlyFailed: false,
   },
-  hitlModalOpen: false,
-  hitlCritiqueOpen: false,
-  phaseLabel: "Awaiting session start",
+});
+
+const toHistoryStatus = (status: SessionStatus): SessionHistoryItem["status"] => {
+  if (status === "complete") {
+    return "Complete";
+  }
+  if (status === "failed") {
+    return "Failed";
+  }
+  return "Running";
+};
+
+const snapshotFromState = (state: SwarmStoreState): SessionSnapshot => ({
+  stage: state.stage,
+  phaseLabel: state.phaseLabel,
+  iterationCount: state.iterationCount,
+  maxIterations: state.maxIterations,
+  complexityScore: state.complexityScore,
+  componentList: state.componentList,
+  diagramPlan: state.diagramPlan,
+  docPlan: state.docPlan,
+  totalDiagrams: state.totalDiagrams,
+  completedDiagrams: state.completedDiagrams,
+  totalDocs: state.totalDocs,
+  completedDocs: state.completedDocs,
+  generatedDiagrams: state.generatedDiagrams,
+  generatedDocs: state.generatedDocs,
+  scalabilityVerdict: state.scalabilityVerdict,
+  securityVerdict: state.securityVerdict,
+  timeoutMessage: state.timeoutMessage,
+});
+
+export const useSwarmStore = create<SwarmStoreState>((set) => ({
+  ...initialState(),
   settings: defaultSettings,
   sessionHistory: [],
-  exportReady: false,
 
   startSession: (threadId, requirement) =>
-    set(() => ({
+    set((state) => ({
+      ...state,
+      ...initialState(),
       threadId,
       requirement,
-      sessionStatus: "running",
-      phaseLabel: "Iteration 1 of 5 — Initializing swarm",
-      hitlModalOpen: false,
-      hitlCritiqueOpen: false,
-      exportReady: false,
+      sessionStatus: "starting",
+      stage: "starting",
+      phaseLabel: "Starting swarm run...",
+      settings: state.settings,
+      sessionHistory: state.sessionHistory,
     })),
 
   resetForNewSession: () =>
-    set(() => ({
-      threadId: null,
-      requirement: "",
-      sessionStatus: "idle",
-      iterationCount: 0,
-      maxIterations: 5,
-      complexityScore: null,
-      architectureJson: null,
-      generatedDiagrams: [],
-      generatedDocs: [],
-      debateLog: [],
-      docPlan: [],
-      diagramPlan: [],
-      agentStates: {
-        architect: baseAgentState("GPT-4o"),
-        scalability: baseAgentState("GPT-4o"),
-        security: baseAgentState("GPT-4o"),
-      },
-      connection: {
-        connected: false,
-        reconnecting: false,
-        attempts: 0,
-        maxAttempts: 10,
-        permanentlyFailed: false,
-      },
-      hitlModalOpen: false,
-      hitlCritiqueOpen: false,
-      phaseLabel: "Awaiting session start",
-      exportReady: false,
+    set((state) => ({
+      ...state,
+      ...initialState(),
+      settings: state.settings,
+      sessionHistory: state.sessionHistory,
     })),
 
   setSessionStatus: (status) => set(() => ({ sessionStatus: status })),
@@ -187,9 +230,13 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
         ...state.connection,
         connected,
         reconnecting: false,
-        permanentlyFailed: false,
         attempts: connected ? 0 : state.connection.attempts,
+        permanentlyFailed: false,
       },
+      sessionStatus:
+        connected && (state.sessionStatus === "idle" || state.sessionStatus === "starting")
+          ? "running"
+          : state.sessionStatus,
     })),
 
   setReconnecting: (reconnecting, attempts, failed) =>
@@ -201,201 +248,211 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
         attempts,
         permanentlyFailed: failed,
       },
+      errorMessage: failed
+        ? "Live updates stopped after one reconnect attempt. The run may still be processing in the background."
+        : state.errorMessage,
+      sessionStatus: failed ? "failed" : state.sessionStatus,
+      stage: failed ? "error" : state.stage,
     })),
 
-  setArchitectTask: (task) =>
+  setStage: (stage, label) =>
+    set(() => ({
+      stage,
+      phaseLabel: label ?? "Working...",
+      sessionStatus:
+        stage === "complete" ? "complete" : stage === "error" ? "failed" : stage === "starting" ? "starting" : "running",
+    })),
+
+  setTimeoutMessage: (message) => set(() => ({ timeoutMessage: message })),
+
+  setErrorMessage: (message) => set(() => ({ errorMessage: message })),
+
+  setArchitectStarted: (message) =>
     set((state) => ({
-      phaseLabel: `Iteration ${Math.max(state.iterationCount, 1)} of ${state.maxIterations} — ${task}`,
+      stage: "running:architect",
+      sessionStatus: "running",
+      phaseLabel: message ?? "Drafting architecture...",
       agentStates: {
+        ...state.agentStates,
         architect: {
           ...state.agentStates.architect,
           state: "active",
-          currentTask: task,
+          currentTask: message ?? "Drafting architecture...",
           lastIteration: Math.max(state.iterationCount, 1),
         },
-        scalability:
-          state.agentStates.scalability.state === "active"
-            ? { ...state.agentStates.scalability, state: "idle", currentTask: "" }
-            : state.agentStates.scalability,
-        security:
-          state.agentStates.security.state === "active"
-            ? { ...state.agentStates.security, state: "idle", currentTask: "" }
-            : state.agentStates.security,
       },
     })),
 
-  setReviewerActive: (agent, task) =>
+  setArchitectureReady: (payload) =>
     set((state) => ({
-      phaseLabel: `Iteration ${Math.max(state.iterationCount, 1)} of ${state.maxIterations} — ${task}`,
+      complexityScore: payload.complexityScore ?? state.complexityScore,
+      componentList: payload.componentList ?? state.componentList,
+      diagramPlan: payload.diagramPlan ?? state.diagramPlan,
+      docPlan: payload.docPlan ?? state.docPlan,
+      totalDiagrams: payload.totalDiagrams ?? state.totalDiagrams,
+      phaseLabel: payload.message ?? state.phaseLabel,
       agentStates: {
-        architect:
-          state.agentStates.architect.state === "active"
-            ? { ...state.agentStates.architect, state: "idle", currentTask: "" }
-            : state.agentStates.architect,
-        scalability: {
-          ...state.agentStates.scalability,
-          state: agent === "scalability" ? "active" : state.agentStates.scalability.state,
-          currentTask: agent === "scalability" ? task : state.agentStates.scalability.currentTask,
-          lastIteration: agent === "scalability" ? Math.max(state.iterationCount, 1) : state.agentStates.scalability.lastIteration,
-        },
-        security: {
-          ...state.agentStates.security,
-          state: agent === "security" ? "active" : state.agentStates.security.state,
-          currentTask: agent === "security" ? task : state.agentStates.security.currentTask,
-          lastIteration: agent === "security" ? Math.max(state.iterationCount, 1) : state.agentStates.security.lastIteration,
+        ...state.agentStates,
+        architect: {
+          ...state.agentStates.architect,
+          state: "active",
+          currentTask: payload.message ?? "Architecture drafted",
+          lastIteration: Math.max(state.iterationCount, 1),
         },
       },
     })),
 
-  applyStateDiff: (node, diff) =>
+  setDocPlan: (payload) =>
     set((state) => {
-      const nextDiagrams = [...state.generatedDiagrams];
-      if (Array.isArray(diff.generated_diagrams)) {
-        diff.generated_diagrams.forEach((diagram) => {
-          const index = nextDiagrams.findIndex((item) => item.diagram_type === diagram.diagram_type);
-          const normalized: DiagramEntry = {
-            ...diagram,
-            updated_at: new Date().toISOString(),
-          };
-          if (index >= 0) {
-            nextDiagrams[index] = normalized;
-          } else {
-            nextDiagrams.push(normalized);
-          }
-        });
-      }
-
-      const nextDocs = [...state.generatedDocs];
-      if (Array.isArray(diff.generated_docs)) {
-        diff.generated_docs.forEach((doc) => {
-          const index = nextDocs.findIndex((item) => item.title === doc.title);
-          if (index >= 0) {
-            nextDocs[index] = doc;
-          } else {
-            nextDocs.push(doc);
-          }
-        });
-      }
-
-      const nextDebateLog = [...state.debateLog];
-
-      if (typeof diff.scalability_feedback === "string" && diff.scalability_feedback.trim()) {
-        const parsed = parseFeedback(diff.scalability_feedback);
-        nextDebateLog.push({
-          id: crypto.randomUUID(),
-          agent: "scalability",
-          iteration: diff.iteration_count ?? state.iterationCount,
-          markdown: parsed.markdown,
-          status: parsed.status,
-          created_at: new Date().toISOString(),
-        });
-      }
-
-      if (typeof diff.security_feedback === "string" && diff.security_feedback.trim()) {
-        const parsed = parseFeedback(diff.security_feedback);
-        nextDebateLog.push({
-          id: crypto.randomUUID(),
-          agent: "security",
-          iteration: diff.iteration_count ?? state.iterationCount,
-          markdown: parsed.markdown,
-          status: parsed.status,
-          created_at: new Date().toISOString(),
-        });
-      }
-
-      const scalabilityStatus =
-        typeof diff.scalability_feedback === "string" && diff.scalability_feedback.trim()
-          ? parseFeedback(diff.scalability_feedback).status
-          : null;
-      const securityStatus =
-        typeof diff.security_feedback === "string" && diff.security_feedback.trim()
-          ? parseFeedback(diff.security_feedback).status
-          : null;
-
-      const nextIteration = diff.iteration_count ?? state.iterationCount;
-      const nextMaxIterations = diff.max_iterations ?? state.maxIterations;
-
-      const nextState = {
-        threadId: diff.thread_id ?? state.threadId,
-        iterationCount: nextIteration,
-        maxIterations: nextMaxIterations,
-        complexityScore: diff.complexity_score ?? state.complexityScore,
-        architectureJson: diff.architecture_json ?? state.architectureJson,
-        generatedDiagrams: nextDiagrams,
-        generatedDocs: nextDocs,
-        debateLog: nextDebateLog,
-        docPlan: diff.doc_plan ? toDocPlan(diff.doc_plan) : state.docPlan,
-        diagramPlan: diff.diagram_plan ? toDocPlan(diff.diagram_plan) : state.diagramPlan,
-        sessionStatus: diff.status ?? state.sessionStatus,
-        agentStates: {
-          architect: {
-            ...state.agentStates.architect,
-            state: node === "write_state_node" ? "idle" : state.agentStates.architect.state,
-          },
-          scalability: {
-            ...state.agentStates.scalability,
-            state:
-              scalabilityStatus === "APPROVED"
-                ? "approved"
-                : scalabilityStatus === "REJECTED"
-                  ? "rejected"
-                  : state.agentStates.scalability.state,
-            currentTask: scalabilityStatus ? "" : state.agentStates.scalability.currentTask,
-            lastIteration: scalabilityStatus
-              ? nextIteration
-              : state.agentStates.scalability.lastIteration,
-          },
-          security: {
-            ...state.agentStates.security,
-            state:
-              securityStatus === "APPROVED"
-                ? "approved"
-                : securityStatus === "REJECTED"
-                  ? "rejected"
-                  : state.agentStates.security.state,
-            currentTask: securityStatus ? "" : state.agentStates.security.currentTask,
-            lastIteration: securityStatus ? nextIteration : state.agentStates.security.lastIteration,
-          },
-        },
-      };
-
-      const approvalCount = [
-        nextState.agentStates.scalability.state,
-        nextState.agentStates.security.state,
-      ].filter((value) => value === "approved").length;
-
-      const phaseLabel =
-        node === "supervisor_node"
-          ? `Iteration ${Math.max(nextIteration, 1)} of ${nextMaxIterations} — Supervisor routing`
-          : state.phaseLabel;
+      const docPlan = payload.docPlan ?? state.docPlan;
+      const existing = new Map(state.generatedDocs.map((item) => [item.doc_slug, item]));
+      const nextDocs = docPlan.map((slug) => existing.get(slug) ?? { doc_slug: slug, status: "pending" as const });
 
       return {
-        ...nextState,
-        phaseLabel:
-          nextState.sessionStatus === "paused"
-            ? `Iteration ${nextIteration} complete — awaiting human review`
-            : nextState.sessionStatus === "complete"
-              ? `Completed in ${nextIteration} iteration${nextIteration === 1 ? "" : "s"} — ${approvalCount}/2 reviewers approved`
-              : phaseLabel,
+        docPlan,
+        totalDocs: payload.totalDocs ?? state.totalDocs,
+        generatedDocs: nextDocs,
+        phaseLabel: payload.message ?? state.phaseLabel,
       };
     }),
 
-  openHitlModal: () => set(() => ({ hitlModalOpen: true, hitlCritiqueOpen: false, sessionStatus: "paused" })),
+  updateDocItem: (payload) =>
+    set((state) => {
+      if (!payload.slug) {
+        return state;
+      }
 
-  closeHitlModal: () => set(() => ({ hitlModalOpen: false, hitlCritiqueOpen: false })),
+      const existing = state.generatedDocs.find((item) => item.doc_slug === payload.slug);
+      const nextDoc: DocEntry = {
+        doc_slug: payload.slug,
+        title: payload.title ?? existing?.title,
+        path: payload.path ?? existing?.path,
+        status: payload.status,
+      };
+      const nextDocs = existing
+        ? state.generatedDocs.map((item) => (item.doc_slug === payload.slug ? nextDoc : item))
+        : [...state.generatedDocs, nextDoc];
 
-  setHitlCritiqueOpen: (open) => set(() => ({ hitlCritiqueOpen: open })),
+      return {
+        generatedDocs: nextDocs,
+        completedDocs: payload.completedDocs ?? state.completedDocs,
+        totalDocs: payload.totalDocs ?? state.totalDocs,
+      };
+    }),
 
-  completeSession: () =>
+  updateDiagramItem: (payload) =>
+    set((state) => {
+      if (!payload.type) {
+        return state;
+      }
+
+      const existing = state.generatedDiagrams.find((item) => item.diagram_type === payload.type);
+      const nextDiagram: DiagramEntry = {
+        diagram_type: payload.type,
+        path: payload.path ?? existing?.path,
+        status: payload.status,
+      };
+      const nextDiagrams = existing
+        ? state.generatedDiagrams.map((item) => (item.diagram_type === payload.type ? nextDiagram : item))
+        : [...state.generatedDiagrams, nextDiagram];
+
+      return {
+        generatedDiagrams: nextDiagrams,
+        completedDiagrams: payload.completedDiagrams ?? state.completedDiagrams,
+        totalDiagrams: payload.totalDiagrams ?? state.totalDiagrams,
+      };
+    }),
+
+  setReviewerState: (agent, payload) =>
+    set((state) => {
+      const verdictState =
+        payload.verdict === "APPROVED"
+          ? "approved"
+          : payload.verdict === "REJECTED"
+            ? "rejected"
+            : payload.reviewing
+              ? "active"
+              : "idle";
+      const label =
+        payload.message ??
+        (payload.reviewing
+          ? `${agent === "scalability" ? "Scalability" : "Security"} review in progress...`
+          : state.phaseLabel);
+
+      return {
+        iterationCount: payload.iteration ?? state.iterationCount,
+        phaseLabel: label,
+        scalabilityVerdict:
+          agent === "scalability" && payload.verdict ? payload.verdict : state.scalabilityVerdict,
+        securityVerdict:
+          agent === "security" && payload.verdict ? payload.verdict : state.securityVerdict,
+        agentStates: {
+          ...state.agentStates,
+          [agent]: {
+            ...state.agentStates[agent],
+            state: verdictState,
+            currentTask: payload.message ?? state.agentStates[agent].currentTask,
+            lastIteration: payload.iteration ?? state.agentStates[agent].lastIteration,
+          },
+        },
+      };
+    }),
+
+  finalizeRun: (payload) =>
     set((state) => ({
+      stage: "complete",
       sessionStatus: "complete",
-      hitlModalOpen: true,
-      hitlCritiqueOpen: false,
-      exportReady: true,
-      phaseLabel: `Completed in ${state.iterationCount} iteration${state.iterationCount === 1 ? "" : "s"}`,
+      phaseLabel: "Run complete",
+      complexityScore: payload.complexityScore ?? state.complexityScore,
+      iterationCount: payload.iterationCount ?? state.iterationCount,
+      totalDiagrams: payload.diagramCount ?? state.totalDiagrams,
+      totalDocs: payload.docCount ?? state.totalDocs,
+      completedDiagrams: payload.diagramCount ?? state.completedDiagrams,
+      completedDocs: payload.docCount ?? state.completedDocs,
+      generatedDiagrams:
+        payload.diagrams?.map((diagram) => ({
+          diagram_type: diagram.type,
+          path: diagram.path,
+          status: "done",
+        })) ?? state.generatedDiagrams,
+      generatedDocs:
+        payload.docs?.map((doc) => ({
+          doc_slug: doc.path.split("/").pop() ?? doc.title,
+          title: doc.title,
+          path: doc.path,
+          status: "done",
+        })) ?? state.generatedDocs,
+      scalabilityVerdict: payload.scalabilityVerdict ?? state.scalabilityVerdict,
+      securityVerdict: payload.securityVerdict ?? state.securityVerdict,
+      agentStates: {
+        architect: {
+          ...state.agentStates.architect,
+          state: "approved",
+          currentTask: "Architecture finalized",
+          lastIteration: payload.iterationCount ?? state.iterationCount,
+        },
+        scalability: {
+          ...state.agentStates.scalability,
+          state:
+            (payload.scalabilityVerdict ?? state.scalabilityVerdict) === "REJECTED" ? "rejected" : "approved",
+          currentTask: payload.scalabilityVerdict ?? state.scalabilityVerdict ?? "",
+          lastIteration: payload.iterationCount ?? state.iterationCount,
+        },
+        security: {
+          ...state.agentStates.security,
+          state:
+            (payload.securityVerdict ?? state.securityVerdict) === "REJECTED" ? "rejected" : "approved",
+          currentTask: payload.securityVerdict ?? state.securityVerdict ?? "",
+          lastIteration: payload.iterationCount ?? state.iterationCount,
+        },
+      },
+      connection: {
+        ...state.connection,
+        connected: false,
+        reconnecting: false,
+      },
+      errorMessage: null,
     })),
-
-  setExportReady: (ready) => set(() => ({ exportReady: ready })),
 
   updateSettings: (settings) =>
     set((state) => {
@@ -412,12 +469,7 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
       }
       try {
         const parsed = JSON.parse(raw) as SettingsState;
-        return {
-          settings: {
-            ...defaultSettings,
-            ...parsed,
-          },
-        };
+        return { settings: { ...defaultSettings, ...parsed } };
       } catch {
         return { settings: defaultSettings };
       }
@@ -428,31 +480,18 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
       if (!state.threadId) {
         return state;
       }
+
       const nextEntry: SessionHistoryItem = {
         threadId: state.threadId,
         requirement: state.requirement,
         createdAt: new Date().toISOString(),
         complexityScore: state.complexityScore,
-        status:
-          state.sessionStatus === "running"
-            ? "Running"
-            : state.sessionStatus === "failed"
-              ? "Failed"
-              : "Complete",
-        diagramsCount: state.generatedDiagrams.length,
-        docsCount: state.generatedDocs.length,
-        snapshot: {
-          iterationCount: state.iterationCount,
-          maxIterations: state.maxIterations,
-          complexityScore: state.complexityScore,
-          generatedDiagrams: state.generatedDiagrams,
-          generatedDocs: state.generatedDocs,
-          debateLog: state.debateLog,
-          docPlan: state.docPlan,
-          diagramPlan: state.diagramPlan,
-          architectureJson: state.architectureJson,
-        },
+        status: toHistoryStatus(state.sessionStatus),
+        diagramsCount: state.totalDiagrams || state.generatedDiagrams.length,
+        docsCount: state.totalDocs || state.generatedDocs.length,
+        snapshot: snapshotFromState(state),
       };
+
       const deduped = [nextEntry, ...state.sessionHistory.filter((item) => item.threadId !== state.threadId)];
       localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(deduped));
       return { sessionHistory: deduped };
@@ -465,10 +504,7 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
         return { sessionHistory: [] };
       }
       try {
-        const parsed = JSON.parse(raw) as SessionHistoryItem[];
-        return {
-          sessionHistory: parsed,
-        };
+        return { sessionHistory: JSON.parse(raw) as SessionHistoryItem[] };
       } catch {
         return { sessionHistory: [] };
       }
@@ -476,27 +512,38 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
 
   hydrateSessionFromHistory: (threadId) =>
     set((state) => {
-      const historyMatch = state.sessionHistory.find((item) => item.threadId === threadId);
-      if (!historyMatch?.snapshot) {
+      const match = state.sessionHistory.find((item) => item.threadId === threadId);
+      if (!match?.snapshot) {
         return state;
       }
 
-      const snapshot = historyMatch.snapshot;
+      const snapshot = match.snapshot;
       return {
-        threadId: historyMatch.threadId,
-        requirement: historyMatch.requirement,
+        ...state,
+        ...initialState(),
+        settings: state.settings,
+        sessionHistory: state.sessionHistory,
+        threadId: match.threadId,
+        requirement: match.requirement,
+        sessionStatus:
+          match.status === "Complete" ? "complete" : match.status === "Failed" ? "failed" : "running",
+        stage: snapshot.stage,
+        phaseLabel: snapshot.phaseLabel,
         iterationCount: snapshot.iterationCount,
         maxIterations: snapshot.maxIterations,
         complexityScore: snapshot.complexityScore,
-        architectureJson: snapshot.architectureJson,
+        componentList: snapshot.componentList,
+        diagramPlan: snapshot.diagramPlan,
+        docPlan: snapshot.docPlan,
+        totalDiagrams: snapshot.totalDiagrams,
+        completedDiagrams: snapshot.completedDiagrams,
+        totalDocs: snapshot.totalDocs,
+        completedDocs: snapshot.completedDocs,
         generatedDiagrams: snapshot.generatedDiagrams,
         generatedDocs: snapshot.generatedDocs,
-        debateLog: snapshot.debateLog,
-        docPlan: snapshot.docPlan,
-        diagramPlan: snapshot.diagramPlan,
-        sessionStatus: historyMatch.status === "Complete" ? "complete" : historyMatch.status === "Failed" ? "failed" : "running",
-        hitlModalOpen: false,
-        hitlCritiqueOpen: false,
+        scalabilityVerdict: snapshot.scalabilityVerdict,
+        securityVerdict: snapshot.securityVerdict,
+        timeoutMessage: snapshot.timeoutMessage,
       };
     }),
 }));

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Any
 
 from app.agent.agent import build_swarm_graph
 from app.agent.state.global_swarm_state import GlobalSwarmState, initial_state
@@ -14,6 +15,19 @@ _graph = None
 
 # Supervisor + workers can take many steps; default LangGraph limit is low.
 _RECURSION_LIMIT = 120
+
+
+def unpack_astream_item(item: Any) -> tuple[str, Any]:
+    """
+    Normalize LangGraph `astream` yields when `stream_mode` is a sequence.
+    With `subgraphs=True`, items are `(namespace, mode, chunk)`; otherwise `(mode, chunk)`.
+    """
+    if isinstance(item, tuple):
+        if len(item) == 3:
+            return item[1], item[2]
+        if len(item) == 2:
+            return item[0], item[1]
+    raise ValueError(f"Unexpected astream item shape: {type(item)!r}")
 
 
 def init_swarm_graph(checkpointer) -> None:
@@ -46,6 +60,36 @@ async def run_swarm(
     }
     result = await graph.ainvoke(state, config=config)
     return result  # type: ignore[return-value]
+
+
+async def astream_swarm(
+    *,
+    thread_id: str,
+    task_requirement: str | None = None,
+    user_id: str | None = None,
+):
+    """
+    Stream LangGraph `updates` and `custom` modes (see `astream(..., stream_mode=[...])`).
+    With `task_requirement`, starts or resumes a run with fresh input for that thread;
+    with `task_requirement` omitted, passes `None` to resume from checkpoint only.
+    """
+    graph = get_swarm_graph()
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": _RECURSION_LIMIT,
+    }
+    if task_requirement:
+        inp = initial_state(thread_id=thread_id, requirement=task_requirement, user_id=user_id)
+    else:
+        inp = None
+
+    async for item in graph.astream(
+        inp,
+        config=config,
+        stream_mode=["updates", "custom"],
+        subgraphs=True,
+    ):
+        yield item
 
 
 def _get_structure_graph(*, xray: bool):

@@ -3,6 +3,7 @@ from app.agent.message_content import message_content_to_str
 from langchain_core.prompts import ChatPromptTemplate
 from app.agent.review_parsing import terminal_review_status
 from app.agent.state.global_swarm_state import GlobalSwarmState
+from app.agent.streaming import emit_custom_event
 
 llm = llm_gemini
 
@@ -55,6 +56,18 @@ STATUS: REJECTED
 
 
 async def scalability_node(state: GlobalSwarmState) -> dict:
+    emit_custom_event(
+        {
+            "event": "item_started",
+            "type": "progress",
+            "stage": "scalability",
+            "status": "started",
+            "item_type": "review",
+            "item_name": "scalability",
+            "message": "Running scalability review",
+        }
+    )
+
     # Serialize all diagrams into readable text for the prompt
     diagrams_text = (
         "\n\n".join(
@@ -105,4 +118,24 @@ async def scalability_node(state: GlobalSwarmState) -> dict:
     )
     final_feedback = f"{normalized}\n\n---\n\nSTATUS: {label}"
 
-    return {"scalability_feedback": final_feedback}
+    emit_custom_event(
+        {
+            "event": "review_result",
+            "type": "progress",
+            "stage": "scalability",
+            "status": "completed",
+            "item_type": "review",
+            "item_name": "scalability",
+            "message": f"Scalability review: {label}",
+            "review_status": label.lower(),
+        }
+    )
+
+    return {
+        "scalability_feedback": final_feedback,
+        "current_stage": "scalability",
+        "current_task": "Scalability review complete",
+        "progress_message": f"Scalability review: {label}",
+        "active_item_type": "review",
+        "active_item_name": "scalability",
+    }

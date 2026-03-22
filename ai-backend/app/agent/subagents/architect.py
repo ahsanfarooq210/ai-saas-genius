@@ -11,6 +11,7 @@ from langgraph.graph import END, StateGraph
 from app.agent.llm import llm_gemini
 from app.agent.message_content import message_content_to_str
 from app.agent.state.global_swarm_state import DiagramEntry, GlobalSwarmState
+from app.agent.streaming import emit_custom_event
 from app.services.uploadthing_service import UploadThingService
 
 ARCHITECT_PROMPT = """You are a senior systems architect.
@@ -62,6 +63,18 @@ def _fallback_architecture(task: str) -> dict:
 
 
 async def architect_node(state: GlobalSwarmState) -> dict:
+    emit_custom_event(
+        {
+            "event": "item_started",
+            "type": "progress",
+            "stage": "architect",
+            "status": "started",
+            "item_type": "diagram",
+            "item_name": "overview",
+            "message": "Drafting architecture and overview diagram",
+        }
+    )
+
     prompt = ChatPromptTemplate.from_template(ARCHITECT_PROMPT)
     chain = prompt | llm_gemini
     response = await chain.ainvoke({"task_requirement": state["task_requirement"]})
@@ -112,14 +125,42 @@ async def architect_node(state: GlobalSwarmState) -> dict:
         "iteration": iteration,
     }
 
+    diagram_plan_str = [str(x) for x in diagram_plan]
+    doc_plan_str = [str(x) for x in doc_plan]
+    total_d = len(diagram_plan_str)
+
+    emit_custom_event(
+        {
+            "event": "item_completed",
+            "type": "progress",
+            "stage": "architect",
+            "status": "completed",
+            "item_type": "diagram",
+            "item_name": "overview",
+            "message": f"Architecture complete. Complexity {complexity}/10.",
+            "path": path,
+            "complexity_score": complexity,
+            "total_diagram_count": total_d,
+            "completed_diagram_count": 1,
+        }
+    )
+
     return {
         "current_architecture_mermaid": mermaid,
         "architecture_json": arch_json,
         "component_list": [str(x) for x in components],
         "complexity_score": complexity,
-        "diagram_plan": [str(x) for x in diagram_plan],
-        "doc_plan": [str(x) for x in doc_plan],
+        "diagram_plan": diagram_plan_str,
+        "doc_plan": doc_plan_str,
         "generated_diagrams": [overview],
+        "current_stage": "architect",
+        "current_task": "Architecture drafted",
+        "progress_message": f"Architecture complete. Complexity {complexity}/10.",
+        "active_item_type": "diagram",
+        "active_item_name": "overview",
+        "completed_diagram_count": 1,
+        "total_diagram_count": total_d,
+        "total_doc_count": len(doc_plan_str),
     }
 
 

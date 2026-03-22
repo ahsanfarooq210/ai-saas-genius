@@ -3,6 +3,7 @@ from app.agent.message_content import message_content_to_str
 from app.agent.review_parsing import terminal_review_status
 from app.agent.state.global_swarm_state import GlobalSwarmState
 from app.agent.llm import llm_gemini
+from app.agent.streaming import emit_custom_event
 
 SECURITY_PROMPT = """
 You are a hostile security auditor. Assume the system described below is already
@@ -32,6 +33,18 @@ STATUS: REJECTED
 
 
 async def security_node(state: GlobalSwarmState) -> dict:
+    emit_custom_event(
+        {
+            "event": "item_started",
+            "type": "progress",
+            "stage": "security",
+            "status": "started",
+            "item_type": "review",
+            "item_name": "security",
+            "message": "Running security review",
+        }
+    )
+
     diagrams_text = (
         "\n\n".join(
             [
@@ -71,4 +84,24 @@ async def security_node(state: GlobalSwarmState) -> dict:
     )
     final_feedback = f"{normalized_feedback}\n\n---\n\nSTATUS: {label}"
 
-    return {"security_feedback": final_feedback}
+    emit_custom_event(
+        {
+            "event": "review_result",
+            "type": "progress",
+            "stage": "security",
+            "status": "completed",
+            "item_type": "review",
+            "item_name": "security",
+            "message": f"Security review: {label}",
+            "review_status": label.lower(),
+        }
+    )
+
+    return {
+        "security_feedback": final_feedback,
+        "current_stage": "security",
+        "current_task": "Security review complete",
+        "progress_message": f"Security review: {label}",
+        "active_item_type": "review",
+        "active_item_name": "security",
+    }

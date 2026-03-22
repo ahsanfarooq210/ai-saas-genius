@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { Braces, Download, FileArchive, FileText } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Copy, Download, FileText, GitBranch } from "lucide-react";
 import { useSwarmStore } from "@/features/swarm/store";
 
 const triggerDownload = (filename: string, content: string, type: string) => {
@@ -15,135 +15,121 @@ const triggerDownload = (filename: string, content: string, type: string) => {
 
 const ExportPage = () => {
   const navigate = useNavigate();
-  const { threadId } = useParams();
   const requirement = useSwarmStore((state) => state.requirement);
   const generatedDocs = useSwarmStore((state) => state.generatedDocs);
   const generatedDiagrams = useSwarmStore((state) => state.generatedDiagrams);
-  const architectureJson = useSwarmStore((state) => state.architectureJson);
+  const complexityScore = useSwarmStore((state) => state.complexityScore);
 
-  const fullReport = useMemo(
-    () => generatedDocs.map((doc) => `# ${doc.title}\n\n${doc.content}`).join("\n\n---\n\n"),
-    [generatedDocs],
-  );
-
-  const estimatedSizeKb = useMemo(
-    () => Math.max(1, Math.round(new Blob([fullReport]).size / 1024)),
-    [fullReport],
-  );
-
-  const diagramsBundle = useMemo(
+  const manifest = useMemo(
     () =>
-      generatedDiagrams
-        .map((diagram) => `## ${diagram.diagram_type}\n\n\
-\
-${diagram.mermaid_code}\n\
-\
-`)
-        .join("\n"),
-    [generatedDiagrams],
+      JSON.stringify(
+        {
+          requirement,
+          complexity_score: complexityScore,
+          diagrams: generatedDiagrams.map((item) => ({
+            type: item.diagram_type,
+            path: item.path ?? null,
+            status: item.status,
+          })),
+          docs: generatedDocs.map((item) => ({
+            slug: item.doc_slug,
+            title: item.title ?? null,
+            path: item.path ?? null,
+            status: item.status,
+          })),
+        },
+        null,
+        2,
+      ),
+    [complexityScore, generatedDiagrams, generatedDocs, requirement],
   );
-
-  const shareLink = `${window.location.origin}/session/${threadId}`;
 
   return (
-    <section className="mx-auto max-w-6xl space-y-6">
+    <section className="mx-auto max-w-5xl space-y-6">
       <header className="space-y-3">
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">Your Architecture is Ready</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">Export Session Manifest</h1>
         <blockquote className="rounded-xl border border-border/70 bg-card px-4 py-3 text-foreground/90">
           “{requirement || "No requirement recorded"}”
         </blockquote>
+        <p className="text-sm text-muted-foreground">
+          This frontend only receives storage paths from the swarm stream. Raw Markdown and Mermaid content are not fetched here.
+        </p>
       </header>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <article className="rounded-xl border border-border/70 bg-card p-4">
+          <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background">
+            <Download className="h-4 w-4" />
+          </div>
+          <h2 className="text-sm font-semibold text-foreground">Session Manifest</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Requirement, complexity score, and final artifact paths.</p>
+          <button
+            type="button"
+            onClick={() => triggerDownload("swarm-session-manifest.json", manifest, "application/json")}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download JSON
+          </button>
+        </article>
+
+        <article className="rounded-xl border border-border/70 bg-card p-4">
+          <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background">
+            <Copy className="h-4 w-4" />
+          </div>
+          <h2 className="text-sm font-semibold text-foreground">Copy All Paths</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Copies every final doc and diagram storage key to the clipboard.</p>
+          <button
+            type="button"
+            onClick={async () => {
+              const text = [
+                ...generatedDiagrams.map((item) => item.path).filter(Boolean),
+                ...generatedDocs.map((item) => item.path).filter(Boolean),
+              ].join("\n");
+              await navigator.clipboard.writeText(text);
+            }}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Copy
+          </button>
+        </article>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <section className="rounded-xl border border-border/70 bg-card p-4">
+          <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background">
+            <GitBranch className="h-4 w-4" />
+          </div>
+          <h2 className="text-sm font-semibold text-foreground">Diagrams</h2>
+          <div className="mt-3 space-y-2">
+            {generatedDiagrams.map((diagram) => (
+              <div key={diagram.diagram_type} className="rounded-xl border border-border bg-background px-3 py-2">
+                <p className="text-sm text-foreground">{diagram.diagram_type}</p>
+                <p className="truncate text-xs text-muted-foreground">{diagram.path ?? "No path available"}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-border/70 bg-card p-4">
           <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background">
             <FileText className="h-4 w-4" />
           </div>
-          <h3 className="text-sm font-semibold text-foreground">Full Architecture Report</h3>
-          <p className="mt-1 text-xs text-muted-foreground">Estimated size: {estimatedSizeKb}KB</p>
-          <button
-            onClick={() => triggerDownload("architecture-report.md", fullReport, "text/markdown")}
-            className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Download
-          </button>
-        </article>
-
-        <article className="rounded-xl border border-border/70 bg-card p-4">
-          <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background">
-            <FileArchive className="h-4 w-4" />
+          <h2 className="text-sm font-semibold text-foreground">Documents</h2>
+          <div className="mt-3 space-y-2">
+            {generatedDocs.map((doc) => (
+              <div key={doc.doc_slug} className="rounded-xl border border-border bg-background px-3 py-2">
+                <p className="text-sm text-foreground">{doc.title ?? doc.doc_slug}</p>
+                <p className="truncate text-xs text-muted-foreground">{doc.path ?? "No path available"}</p>
+              </div>
+            ))}
           </div>
-          <h3 className="text-sm font-semibold text-foreground">Mermaid Diagrams Bundle</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{generatedDiagrams.length} diagrams</p>
-          <button
-            onClick={() => triggerDownload("diagrams-bundle.mmd", diagramsBundle, "text/plain")}
-            className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Download
-          </button>
-        </article>
-
-        <article className="rounded-xl border border-border/70 bg-card p-4">
-          <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background">
-            <Braces className="h-4 w-4" />
-          </div>
-          <h3 className="text-sm font-semibold text-foreground">Architecture JSON</h3>
-          <p className="mt-1 text-xs text-muted-foreground">Structured architecture export</p>
-          <button
-            onClick={() =>
-              triggerDownload(
-                "architecture.json",
-                JSON.stringify(architectureJson ?? {}, null, 2),
-                "application/json",
-              )
-            }
-            className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Download
-          </button>
-        </article>
-
-        {generatedDocs.map((doc) => (
-          <article key={doc.title} className="rounded-xl border border-border/70 bg-card p-4">
-            <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background">
-              <FileText className="h-4 w-4" />
-            </div>
-            <h3 className="text-sm font-semibold text-foreground">{doc.title}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{doc.doc_type}</p>
-            <button
-              onClick={() => triggerDownload(`${doc.title}.md`, doc.content, "text/markdown")}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Download
-            </button>
-          </article>
-        ))}
+        </section>
       </div>
 
-      <section className="rounded-xl border border-border/70 bg-card px-4 py-3">
-        <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Share Session</p>
-        <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center">
-          <input
-            readOnly
-            value={shareLink}
-            className="h-9 flex-1 rounded-xl border border-border bg-background px-3 text-sm text-foreground/90"
-          />
-          <button
-            onClick={async () => {
-              await navigator.clipboard.writeText(shareLink);
-            }}
-            className="h-9 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
-          >
-            Copy
-          </button>
-        </div>
-      </section>
-
       <button
+        type="button"
         onClick={() => navigate("/swarm")}
         className="rounded-xl border border-primary bg-primary px-4 py-2 text-sm text-primary-foreground"
       >

@@ -10,6 +10,7 @@ from langgraph.types import Send
 
 from app.agent.state.doc_worker_state import DocWorkerState
 from app.agent.state.global_swarm_state import DocEntry, GlobalSwarmState
+from app.agent.streaming import emit_custom_event
 from app.services.uploadthing_service import UploadThingService
 
 # from app.agent.storage.file_store import FileStore
@@ -85,7 +86,13 @@ async def doc_planner_node(state: GlobalSwarmState) -> dict:
     if not doc_plan:
         doc_plan = ["overview.md"]
 
-    return {"doc_plan": doc_plan}
+    return {
+        "doc_plan": doc_plan,
+        "total_doc_count": len(doc_plan),
+        "current_stage": "docs",
+        "current_task": "Planning documents",
+        "progress_message": f"Planned {len(doc_plan)} documents",
+    }
 
 
 def route_from_doc_planner(state: GlobalSwarmState) -> list[Send]:
@@ -110,6 +117,19 @@ def route_from_doc_planner(state: GlobalSwarmState) -> list[Send]:
 
 
 async def doc_generator_node(state: DocWorkerState) -> dict:
+    slug = state["doc_slug"]
+    emit_custom_event(
+        {
+            "event": "item_started",
+            "type": "progress",
+            "stage": "docs",
+            "status": "started",
+            "item_type": "doc",
+            "item_name": slug,
+            "message": f"Generating {slug}",
+        }
+    )
+
     diagrams_summary = (
         "\n".join(
             [
@@ -144,8 +164,25 @@ async def doc_generator_node(state: DocWorkerState) -> dict:
         content=content,
         path=path,
     )
+    emit_custom_event(
+        {
+            "event": "item_completed",
+            "type": "progress",
+            "stage": "docs",
+            "status": "completed",
+            "item_type": "doc",
+            "item_name": slug,
+            "message": f"Completed {slug}",
+            "path": path,
+        }
+    )
     return {
         "generated_docs": [entry],
+        "current_stage": "docs",
+        "current_task": f"Generated {slug}",
+        "progress_message": f"Finished document {slug}",
+        "active_item_type": "doc",
+        "active_item_name": slug,
     }
 
 
@@ -157,8 +194,17 @@ def _slug_from_report_path(path: str) -> str:
 
 
 async def write_doc_node(state: GlobalSwarmState) -> dict:
-    actual_slugs = [_slug_from_report_path(d["path"]) for d in state["generated_docs"]]
-    return {"doc_plan": actual_slugs, "docs_complete": True}
+    generated = state.get("generated_docs", [])
+    n = len(generated)
+    actual_slugs = [_slug_from_report_path(d["path"]) for d in generated]
+    return {
+        "doc_plan": actual_slugs,
+        "docs_complete": True,
+        "completed_doc_count": n,
+        "current_stage": "docs",
+        "current_task": "Documentation complete",
+        "progress_message": f"Generated {n} documents",
+    }
 
 
 def build_doc_generator_graph():

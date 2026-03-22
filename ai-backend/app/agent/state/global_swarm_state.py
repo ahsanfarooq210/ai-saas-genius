@@ -49,6 +49,17 @@ class GlobalSwarmState(TypedDict):
     docs_complete: bool  # set True by Doc sub-graph — gates Supervisor routing
     next_agent: str  # routing flag set by Supervisor — never read by workers
 
+    # ── Progress (structured UI / API; not inferred from raw artifacts) ─────
+    current_stage: str  # "supervisor" | "architect" | "docs" | "scalability" | "security" | "done"
+    current_task: str  # short human-readable label for the active step
+    progress_message: str  # longer UI-friendly line
+    active_item_type: str  # "diagram" | "doc" | "review" | ""
+    active_item_name: str  # e.g. "overview", "auth-flow", "overview.md"
+    completed_diagram_count: int
+    completed_doc_count: int
+    total_diagram_count: int
+    total_doc_count: int
+
 
 def initial_state(
     thread_id: str, requirement: str, user_id: Optional[str] = None
@@ -74,4 +85,13 @@ def initial_state(
         iteration_count=0,
         docs_complete=False,
         next_agent="",
+        current_stage="supervisor",
+        current_task="",
+        progress_message="",
+        active_item_type="",
+        active_item_name="",
+        completed_diagram_count=0,
+        completed_doc_count=0,
+        total_diagram_count=0,
+        total_doc_count=0,
     )
