@@ -178,11 +178,6 @@ async def doc_generator_node(state: DocWorkerState) -> dict:
     )
     return {
         "generated_docs": [entry],
-        "current_stage": "docs",
-        "current_task": f"Generated {slug}",
-        "progress_message": f"Finished document {slug}",
-        "active_item_type": "doc",
-        "active_item_name": slug,
     }
 
 
