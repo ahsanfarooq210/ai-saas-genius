@@ -5,9 +5,10 @@ from fastapi.responses import Response
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_current_user
-from app.schemas.agent import AgentGraphMermaidResponse, SwarmRunResponse
+from app.schemas.agent import AgentGraphMermaidResponse, CreateThreadResponse, SwarmRunResponse
 from app.services.swarm_service import (
-    get_agent_graph_mermaid,
+    create_thread,
+    get_agent_graph_mermaid as get_agent_graph_mermaid_service,
     get_swarm_graph_png,
     iter_swarm_sse_events,
     run_swarm_request,
@@ -18,7 +19,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-router.get(
+@router.post(
+    "/thread",
+    response_model=CreateThreadResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new chat thread",
+    description=(
+        "Generates a new `thread_id` (UUID) and uses the LLM to produce a short, "
+        "descriptive title for the thread — the same way ChatGPT and Claude auto-name "
+        "new conversations. Call this before opening the SSE stream so the client "
+        "immediately has both the id and a human-readable name."
+    ),
+    dependencies=[Depends(get_current_user)],
+)(create_thread)
+
+
+@router.get(
     "/graph/mermaid",
     response_model=AgentGraphMermaidResponse,
     summary="Swarm graph as Mermaid text",
@@ -28,7 +44,9 @@ router.get(
         "Use `xray=true` to expand nested subgraphs when supported."
     ),
     dependencies=[Depends(get_current_user)],
-)(get_agent_graph_mermaid)
+)
+async def get_agent_graph_mermaid(xray: bool = False) -> AgentGraphMermaidResponse:
+    return get_agent_graph_mermaid_service(xray=xray)
 
 
 @router.get(

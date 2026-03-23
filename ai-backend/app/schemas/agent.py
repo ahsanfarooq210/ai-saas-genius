@@ -3,6 +3,29 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+class CreateThreadRequest(BaseModel):
+    """Body for creating a new chat thread with an LLM-generated name."""
+
+    task_requirement: str = Field(
+        ...,
+        min_length=1,
+        max_length=50_000,
+        description="Natural-language requirement used to seed the thread and generate its name.",
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Optional external user id for namespacing.",
+    )
+
+
+class CreateThreadResponse(BaseModel):
+    """Returned when a new thread is created."""
+
+    thread_id: str = Field(..., description="UUID for the newly created thread.")
+    thread_name: str = Field(..., description="LLM-generated short title for the thread.")
+
+
 class SwarmRunRequest(BaseModel):
     """Body for running the architecture swarm once end-to-end."""
 

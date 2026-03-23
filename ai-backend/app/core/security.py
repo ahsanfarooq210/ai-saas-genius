@@ -5,7 +5,12 @@ from passlib.context import CryptContext
 
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    # bcrypt_sha256 avoids bcrypt's 72-byte password limit while still
+    # allowing verification of legacy bcrypt hashes.
+    schemes=["bcrypt_sha256", "bcrypt"],
+    deprecated="auto",
+)
 
 
 def get_password_hash(password: str) -> str:

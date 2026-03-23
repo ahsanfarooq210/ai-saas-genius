@@ -8,16 +8,23 @@ const navItems = [
 ];
 
 const statusDot = {
+  connected: "bg-emerald-500",
+  reconnecting: "bg-amber-400 animate-pulse",
   idle: "bg-muted-foreground/60",
-  active: "bg-sky-400 animate-pulse",
-  approved: "bg-emerald-500",
-  rejected: "bg-destructive",
 };
 
 export const SwarmSidebar = () => {
   const location = useLocation();
-  const threadId = useSwarmStore((s) => s.threadId);
-  const agentStates = useSwarmStore((s) => s.agentStates);
+  const threadId = useSwarmStore((state) => state.threadId);
+  const currentStage = useSwarmStore((state) => state.currentStage);
+  const currentTask = useSwarmStore((state) => state.currentTask);
+  const progressMessage = useSwarmStore((state) => state.progressMessage);
+  const activeItemType = useSwarmStore((state) => state.activeItemType);
+  const activeItemName = useSwarmStore((state) => state.activeItemName);
+  const connection = useSwarmStore((state) => state.connection);
+  const progressFeed = useSwarmStore((state) => state.progressFeed);
+
+  const connectionState = connection.connected ? "connected" : connection.reconnecting ? "reconnecting" : "idle";
 
   return (
     <aside className="w-60 shrink-0 border-r border-sidebar-border/70 bg-sidebar px-4 py-5 text-sidebar-foreground">
@@ -41,22 +48,35 @@ export const SwarmSidebar = () => {
       </nav>
 
       {threadId ? (
-        <div className="mt-8 rounded-sm border border-sidebar-border/70 bg-card p-3">
-          <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Live Activity</p>
-          <div className="mt-3 space-y-2 text-sm">
-            <div className="flex items-center justify-between text-foreground/90">
-              <span>Architect</span>
-              <span className={`h-2.5 w-2.5 rounded-full ${statusDot[agentStates.architect.state]}`} />
+        <div className="mt-8 space-y-3 rounded-sm border border-sidebar-border/70 bg-card p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Live Activity</p>
+            <span className={`h-2.5 w-2.5 rounded-full ${statusDot[connectionState]}`} />
+          </div>
+
+          <div className="space-y-2 text-sm">
+            <div>
+              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Stage</p>
+              <p className="mt-1 text-foreground/90">{currentStage ?? "Connecting..."}</p>
             </div>
-            <div className="flex items-center justify-between text-foreground/90">
-              <span>Scalability Expert</span>
-              <span className={`h-2.5 w-2.5 rounded-full ${statusDot[agentStates.scalability.state]}`} />
+            <div>
+              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Status</p>
+              <p className="mt-1 text-foreground/90">{progressMessage ?? currentTask ?? "Waiting for updates"}</p>
             </div>
-            <div className="flex items-center justify-between text-foreground/90">
-              <span>Security Auditor</span>
-              <span className={`h-2.5 w-2.5 rounded-full ${statusDot[agentStates.security.state]}`} />
+            <div>
+              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Current Item</p>
+              <p className="mt-1 text-foreground/90">
+                {activeItemType && activeItemName ? `${activeItemType}: ${activeItemName}` : "No active item"}
+              </p>
             </div>
           </div>
+
+          {progressFeed[0]?.message ? (
+            <div className="rounded-sm border border-sidebar-border/70 bg-background px-3 py-2">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Latest Progress</p>
+              <p className="mt-1 text-sm text-foreground/90">{progressFeed[0].message}</p>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </aside>

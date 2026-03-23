@@ -11,8 +11,15 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from app.agent.agent import build_swarm_graph
+from app.agent.llm import llm_gemini
 from app.agent.state.global_swarm_state import GlobalSwarmState, initial_state
-from app.schemas.agent import AgentGraphMermaidResponse, SwarmRunRequest, SwarmRunResponse
+from app.schemas.agent import (
+    AgentGraphMermaidResponse,
+    CreateThreadRequest,
+    CreateThreadResponse,
+    SwarmRunRequest,
+    SwarmRunResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +54,25 @@ def get_swarm_graph():
             "Swarm graph is not initialized — ensure FastAPI lifespan ran (Postgres or InMemory checkpointer)."
         )
     return _graph
+
+
+async def _thread_has_checkpoint(*, thread_id: str) -> bool:
+    """Return True when the configured checkpointer already has state for this thread."""
+    graph = get_swarm_graph()
+    checkpointer = getattr(graph, "checkpointer", None)
+    if checkpointer is None:
+        return False
+
+    config = {"configurable": {"thread_id": thread_id}}
+    aget_tuple = getattr(checkpointer, "aget_tuple", None)
+    if callable(aget_tuple):
+        return await aget_tuple(config) is not None
+
+    get_tuple = getattr(checkpointer, "get_tuple", None)
+    if callable(get_tuple):
+        return get_tuple(config) is not None
+
+    return False
 
 
 async def run_swarm(
@@ -103,6 +129,11 @@ async def astream_swarm(
     if task_requirement:
         inp = initial_state(thread_id=thread_id, requirement=task_requirement, user_id=user_id)
     else:
+        if not await _thread_has_checkpoint(thread_id=thread_id):
+            raise ValueError(
+                "Cannot resume this thread yet. Start the stream with `task_requirement` first "
+                "so the backend can create the initial checkpoint."
+            )
         inp = None
 
     async for item in graph.astream(
@@ -175,6 +206,33 @@ def swarm_state_to_run_response(state: GlobalSwarmState) -> SwarmRunResponse:
         total_diagram_count=state.get("total_diagram_count", 0),
         total_doc_count=state.get("total_doc_count", 0),
     )
+
+
+_THREAD_NAME_PROMPT = (
+    "Generate a very short, descriptive title (3-6 words, title case, no punctuation) "
+    "for a software architecture chat thread based on this requirement:\n\n{requirement}\n\n"
+    "Respond with ONLY the title, nothing else."
+)
+
+
+async def generate_thread_name(task_requirement: str) -> str:
+    """Use the LLM to generate a short thread title (like ChatGPT / Claude name new chats)."""
+    try:
+        prompt = _THREAD_NAME_PROMPT.format(requirement=task_requirement[:2000])
+        response = await llm_gemini.ainvoke(prompt)
+        name = response.content.strip().strip('"').strip("'")
+        # Truncate to a safe length just in case
+        return name[:120] if name else "New Architecture Chat"
+    except Exception:
+        logger.warning("Thread name generation failed, using fallback.")
+        return "New Architecture Chat"
+
+
+async def create_thread(payload: CreateThreadRequest) -> CreateThreadResponse:
+    """Create a new thread id and generate an LLM name for it."""
+    thread_id = str(uuid.uuid4())
+    thread_name = await generate_thread_name(payload.task_requirement)
+    return CreateThreadResponse(thread_id=thread_id, thread_name=thread_name)
 
 
 async def iter_swarm_sse_events(

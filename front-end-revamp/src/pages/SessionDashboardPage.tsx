@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -6,15 +6,14 @@ import {
   Circle,
   Copy,
   Loader2,
-  Shield,
   TriangleAlert,
-  TrendingUp,
+  Workflow,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { useSwarmStore } from "@/features/swarm/store";
-import { SwarmSseClient } from "@/features/swarm/sse";
+import { closeAgentStream, openAgentStream } from "@/features/swarm/sse";
 import type { DiagramEntry, DocEntry, ReviewVerdict, WorkItemStatus } from "@/features/swarm/types";
 
 const verdictStyles: Record<ReviewVerdict, string> = {
@@ -32,7 +31,7 @@ const statusLabel = (status: WorkItemStatus) => {
   if (status === "done") {
     return "Done";
   }
-  return "Skipped";
+  return "Failed";
 };
 
 const complexityTone = (score: number | null) => {
@@ -119,18 +118,34 @@ const FinalOutputList = ({
   </section>
 );
 
+const reviewTitle = (label: string, verdict: ReviewVerdict | null, feedback: string | null) => (
+  <section className="rounded-xl border border-border/70 bg-card p-4">
+    <div className="flex items-center justify-between gap-3">
+      <h3 className="text-sm font-semibold text-foreground">{label}</h3>
+      {verdict ? <span className={`rounded-full border px-3 py-1 text-xs ${verdictStyles[verdict]}`}>{verdict}</span> : null}
+    </div>
+    <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">
+      {feedback ?? "No review feedback has been emitted yet."}
+    </p>
+  </section>
+);
+
 const SessionDashboardPage = () => {
   const { threadId: routeThreadId } = useParams();
   const {
     threadId,
+    threadName,
     requirement,
     stage,
     sessionStatus,
     iterationCount,
     maxIterations,
-    phaseLabel,
+    currentStage,
+    currentTask,
+    progressMessage,
+    activeItemType,
+    activeItemName,
     complexityScore,
-    componentList,
     generatedDocs,
     generatedDiagrams,
     totalDocs,
@@ -139,9 +154,12 @@ const SessionDashboardPage = () => {
     completedDiagrams,
     scalabilityVerdict,
     securityVerdict,
+    scalabilityFeedback,
+    securityFeedback,
     connection,
     timeoutMessage,
     errorMessage,
+    progressFeed,
     hydrateSessionHistory,
     hydrateSessionFromHistory,
     sessionHistory,
@@ -149,8 +167,8 @@ const SessionDashboardPage = () => {
   } = useSwarmStore();
 
   const currentThreadId = routeThreadId ?? threadId;
-  const clientRef = useRef<SwarmSseClient | null>(null);
   const complexity = complexityTone(complexityScore);
+  const statusTitle = progressMessage ?? currentTask ?? currentStage ?? "Waiting to begin...";
 
   useEffect(() => {
     hydrateSessionHistory();
@@ -160,6 +178,7 @@ const SessionDashboardPage = () => {
     if (!routeThreadId || routeThreadId === threadId) {
       return;
     }
+
     const historyMatch = sessionHistory.find((item) => item.threadId === routeThreadId);
     if (historyMatch?.snapshot) {
       hydrateSessionFromHistory(routeThreadId);
@@ -170,26 +189,26 @@ const SessionDashboardPage = () => {
     if (!currentThreadId || sessionStatus === "complete" || sessionStatus === "failed") {
       return;
     }
-    if (clientRef.current) {
-      return;
-    }
-    clientRef.current = new SwarmSseClient(currentThreadId);
-    clientRef.current.connect();
+
+    const ownerId = `session-dashboard:${currentThreadId}`;
+    const shouldStartNewRun = threadId === currentThreadId && sessionStatus === "starting";
+
+    openAgentStream({
+      ownerId,
+      threadId: currentThreadId,
+      taskRequirement: shouldStartNewRun ? requirement : undefined,
+    });
 
     return () => {
-      clientRef.current?.disconnect();
-      clientRef.current = null;
+      closeAgentStream(currentThreadId, ownerId);
     };
-  }, [currentThreadId, sessionStatus]);
+  }, [currentThreadId, requirement, sessionStatus, threadId]);
 
   useEffect(() => {
     if (sessionStatus === "complete" || sessionStatus === "failed") {
       saveSessionHistoryItem();
     }
   }, [saveSessionHistoryItem, sessionStatus]);
-
-  const docItems = useMemo(() => generatedDocs, [generatedDocs]);
-  const diagramItems = useMemo(() => generatedDiagrams, [generatedDiagrams]);
 
   const finalDocItems = useMemo(
     () =>
@@ -213,7 +232,7 @@ const SessionDashboardPage = () => {
     [generatedDiagrams],
   );
 
-  const reviewPassLabel = `Review pass ${Math.max(iterationCount, 1)} of ${maxIterations}`;
+  const reviewPassLabel = `Iteration ${Math.max(iterationCount, 1)} of ${maxIterations}`;
 
   return (
     <section className="mx-auto max-w-6xl space-y-4">
@@ -222,7 +241,7 @@ const SessionDashboardPage = () => {
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Swarm Run</p>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              {stage === "complete" ? "Architecture package ready" : phaseLabel}
+              {threadName || (stage === "complete" ? "Architecture package ready" : statusTitle)}
             </h1>
             <p className="max-w-3xl text-sm text-muted-foreground">
               {requirement || "No requirement recorded."}
@@ -234,7 +253,8 @@ const SessionDashboardPage = () => {
                 {complexity.label} {complexityScore !== null ? `(${complexityScore}/10)` : ""}
               </span>
             ) : null}
-            <Badge variant="outline">Iteration {Math.max(iterationCount, 1)}</Badge>
+            {currentStage ? <Badge variant="outline">{currentStage}</Badge> : null}
+            <Badge variant="outline">{reviewPassLabel}</Badge>
           </div>
         </div>
       </header>
@@ -242,7 +262,7 @@ const SessionDashboardPage = () => {
       {connection.reconnecting ? (
         <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Reconnecting live stream in 2 seconds...
+          Reconnecting live stream with checkpoint resume...
         </div>
       ) : null}
 
@@ -266,126 +286,64 @@ const SessionDashboardPage = () => {
             <div className="flex items-center gap-3">
               <Spinner className="h-5 w-5 text-sky-300" />
               <div>
-                <h2 className="text-base font-semibold text-foreground">{phaseLabel}</h2>
+                <h2 className="text-base font-semibold text-foreground">{statusTitle}</h2>
                 <p className="text-sm text-muted-foreground">
-                  {stage === "running:architect" && "Drafting architecture..."}
-                  {stage === "running:doc_generator" && "Generating documentation..."}
-                  {stage === "running:scalability" && "Reviewing architecture — Scalability..."}
-                  {stage === "running:security" && "Reviewing architecture — Security..."}
-                  {stage === "starting" && "Connecting to the swarm stream..."}
-                  {stage === "idle" && "Waiting to begin..."}
-                  {stage === "error" && "Live updates stopped."}
+                  {currentTask || progressMessage || "Waiting for backend state updates..."}
                 </p>
               </div>
             </div>
 
-            {componentList.length > 0 || complexityScore !== null ? (
+            <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-border/70 bg-background p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  {complexity.label ? (
-                    <span className={`inline-flex rounded-full border px-3 py-1 text-xs ${complexity.className}`}>
-                      {complexity.label}
-                    </span>
-                  ) : null}
-                  <span className="text-xs text-muted-foreground">
-                    Planning {totalDiagrams || 0} diagrams, {totalDocs || 0} documents
+                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Current Stage</p>
+                <p className="mt-2 text-sm text-foreground">{currentStage ?? "Connecting..."}</p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Active Work Item</p>
+                <p className="mt-2 text-sm text-foreground">
+                  {activeItemType && activeItemName ? `${activeItemType}: ${activeItemName}` : "No active item reported"}
+                </p>
+              </div>
+            </div>
+
+            {totalDiagrams > 0 ? (
+              <div className="space-y-3 rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center justify-between text-sm">
+                  <h3 className="font-medium text-foreground">Diagrams</h3>
+                  <span className="text-muted-foreground">
+                    {completedDiagrams} / {totalDiagrams}
                   </span>
                 </div>
-                {componentList.length > 0 ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {componentList.map((component) => (
-                      <span
-                        key={component}
-                        className="rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground"
-                      >
-                        {component}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {stage === "running:doc_generator" ? (
-              <div className="space-y-5">
-                {totalDiagrams > 0 ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <h3 className="font-medium text-foreground">Diagrams</h3>
-                      <span className="text-muted-foreground">
-                        {completedDiagrams} / {totalDiagrams}
-                      </span>
-                    </div>
-                    <Progress value={progressValue(completedDiagrams, totalDiagrams)} />
-                    <div className="space-y-2">
-                      {diagramItems.map((item) => (
-                        <ItemRow
-                          key={item.diagram_type}
-                          label={item.diagram_type}
-                          status={item.status}
-                          path={item.path}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {totalDocs > 0 ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <h3 className="font-medium text-foreground">Documents</h3>
-                      <span className="text-muted-foreground">
-                        {completedDocs} / {totalDocs}
-                      </span>
-                    </div>
-                    <Progress value={progressValue(completedDocs, totalDocs)} />
-                    <div className="space-y-2">
-                      {docItems.map((item) => (
-                        <ItemRow
-                          key={item.doc_slug}
-                          label={item.title ?? item.doc_slug}
-                          status={item.status}
-                          path={item.path}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {(stage === "running:scalability" || stage === "running:security") ? (
-              <div className="rounded-xl border border-border/70 bg-background p-4">
-                <p className="text-sm text-muted-foreground">{reviewPassLabel}</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <div className="rounded-xl border border-border/70 bg-card p-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                      <TrendingUp className="h-4 w-4" />
-                      Scalability
-                    </div>
-                    {scalabilityVerdict ? (
-                      <span className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs ${verdictStyles[scalabilityVerdict]}`}>
-                        {scalabilityVerdict}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="rounded-xl border border-border/70 bg-card p-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                      <Shield className="h-4 w-4" />
-                      Security
-                    </div>
-                    {securityVerdict ? (
-                      <span className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs ${verdictStyles[securityVerdict]}`}>
-                        {securityVerdict}
-                      </span>
-                    ) : null}
-                  </div>
+                <Progress value={progressValue(completedDiagrams, totalDiagrams)} />
+                <div className="space-y-2">
+                  {generatedDiagrams.map((item) => (
+                    <ItemRow key={item.diagram_type} label={item.diagram_type} status={item.status} path={item.path} />
+                  ))}
                 </div>
-                {scalabilityVerdict === "REJECTED" || securityVerdict === "REJECTED" ? (
-                  <p className="mt-4 text-sm text-muted-foreground">Revising architecture...</p>
-                ) : null}
               </div>
             ) : null}
+
+            {totalDocs > 0 ? (
+              <div className="space-y-3 rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center justify-between text-sm">
+                  <h3 className="font-medium text-foreground">Documents</h3>
+                  <span className="text-muted-foreground">
+                    {completedDocs} / {totalDocs}
+                  </span>
+                </div>
+                <Progress value={progressValue(completedDocs, totalDocs)} />
+                <div className="space-y-2">
+                  {generatedDocs.map((item) => (
+                    <ItemRow key={item.doc_slug} label={item.title ?? item.doc_slug} status={item.status} path={item.path} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 md:grid-cols-2">
+              {reviewTitle("Scalability Review", scalabilityVerdict, scalabilityFeedback)}
+              {reviewTitle("Security Review", securityVerdict, securityFeedback)}
+            </div>
           </section>
 
           <aside className="space-y-4">
@@ -399,7 +357,11 @@ const SessionDashboardPage = () => {
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-foreground">Review pass</span>
+                  <span className="text-sm text-foreground">Thread</span>
+                  <span className="max-w-40 truncate text-xs text-muted-foreground">{currentThreadId ?? "-"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-foreground">Iterations</span>
                   <span className="text-xs text-muted-foreground">{reviewPassLabel}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -410,6 +372,29 @@ const SessionDashboardPage = () => {
                   <span className="text-sm text-foreground">Documents planned</span>
                   <span className="text-xs text-muted-foreground">{totalDocs || "-"}</span>
                 </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-border/70 bg-card p-5">
+              <div className="flex items-center gap-2">
+                <Workflow className="h-4 w-4 text-sky-300" />
+                <h2 className="text-sm font-semibold text-foreground">Progress Feed</h2>
+              </div>
+              <div className="mt-4 space-y-3">
+                {progressFeed.length > 0 ? (
+                  progressFeed.slice(0, 8).map((item) => (
+                    <div key={item.id} className="rounded-xl border border-border/70 bg-background p-3">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                        {item.stage ? <span>{item.stage}</span> : null}
+                        {item.status ? <span>{item.status}</span> : null}
+                        {item.type ? <span>{item.type}</span> : null}
+                      </div>
+                      <p className="mt-2 text-sm text-foreground">{item.message ?? "Progress event received"}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">Progress events will appear here as workers report activity.</p>
+                )}
               </div>
             </section>
           </aside>
@@ -440,6 +425,11 @@ const SessionDashboardPage = () => {
           <div className="grid gap-4 lg:grid-cols-2">
             <FinalOutputList title="Diagrams" items={finalDiagramItems} />
             <FinalOutputList title="Documents" items={finalDocItems} />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {reviewTitle("Scalability Review", scalabilityVerdict, scalabilityFeedback)}
+            {reviewTitle("Security Review", securityVerdict, securityFeedback)}
           </div>
         </div>
       )}

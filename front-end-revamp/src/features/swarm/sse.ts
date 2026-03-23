@@ -1,351 +1,295 @@
+import { swarmApi } from "@/features/swarm/api";
 import { useSwarmStore } from "@/features/swarm/store";
-import type {
-  ArchitectEventPayload,
-  DiagramGeneratorEventPayload,
-  DocGeneratorEventPayload,
-  DocPlannerEventPayload,
-  DoneEventPayload,
-  ReviewEventPayload,
-  SupervisorEventPayload,
-  SwarmEventPayload,
-} from "@/features/swarm/types";
+import type { AgentStatePatch, ProgressEventPayload } from "@/features/swarm/types";
 
 const SSE_TIMEOUT_MS = 3 * 60 * 1000;
-const RECONNECT_DELAY_MS = 2000;
-const EVENT_NAMES = [
-  "supervisor",
-  "architect",
-  "doc_planner",
-  "doc_generator",
-  "diagram_generator",
-  "scalability",
-  "security",
-  "done",
-] as const;
+const RECONNECT_DELAY_MS = 1500;
 
-const parseEventData = <T extends SwarmEventPayload>(raw: string): T | null => {
+type StreamOwnerId = string;
+
+interface OpenAgentStreamOptions {
+  ownerId: StreamOwnerId;
+  threadId: string;
+  taskRequirement?: string;
+  userId?: string | null;
+}
+
+interface ActiveStreamRecord {
+  ownerId: StreamOwnerId;
+  client: SwarmSseClient;
+  releaseTimer: number | null;
+  taskRequirement?: string;
+}
+
+const activeStreams = new Map<string, ActiveStreamRecord>();
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const parseJsonRecord = <T extends Record<string, unknown>>(raw: string): T | null => {
   try {
-    return JSON.parse(raw) as T;
+    const parsed = JSON.parse(raw) as unknown;
+    return isRecord(parsed) ? (parsed as T) : null;
   } catch {
     return null;
   }
 };
 
-const complexityLabel = (score: number | null) => {
-  if (score === null) {
-    return null;
-  }
-  if (score <= 3) {
-    return "Simple system";
-  }
-  if (score <= 6) {
-    return "Moderate";
-  }
-  return "Complex distributed system";
-};
+const parseSseEvent = (chunk: string) => {
+  const event = {
+    name: "message",
+    data: "",
+  };
 
-const handleSupervisorEvent = (payload: SupervisorEventPayload) => {
-  const store = useSwarmStore.getState();
-  const iteration = payload.iteration ?? store.iterationCount;
+  chunk.split("\n").forEach((line) => {
+    const normalizedLine = line.endsWith("\r") ? line.slice(0, -1) : line;
+    if (!normalizedLine || normalizedLine.startsWith(":")) {
+      return;
+    }
 
-  useSwarmStore.setState({
-    iterationCount: iteration,
-    complexityScore: payload.complexity_score ?? store.complexityScore,
-    docPlan: payload.doc_plan ?? store.docPlan,
+    const separatorIndex = normalizedLine.indexOf(":");
+    const field = separatorIndex >= 0 ? normalizedLine.slice(0, separatorIndex) : normalizedLine;
+    const rawValue = separatorIndex >= 0 ? normalizedLine.slice(separatorIndex + 1).trimStart() : "";
+
+    if (field === "event") {
+      event.name = rawValue || "message";
+      return;
+    }
+
+    if (field === "data") {
+      event.data = event.data ? `${event.data}\n${rawValue}` : rawValue;
+    }
   });
 
-  if (payload.next === "architect") {
-    store.setStage("running:architect", "Drafting architecture...");
-    return;
-  }
-  if (payload.next === "doc_generator") {
-    store.setStage("running:doc_generator", "Generating documentation...");
-    return;
-  }
-  if (payload.next === "scalability") {
-    store.setStage("running:scalability", "Reviewing architecture — Scalability...");
-    return;
-  }
-  if (payload.next === "security") {
-    store.setStage("running:security", "Reviewing architecture — Security...");
-    return;
-  }
-  if (payload.next === "end") {
-    if (payload.message) {
-      useSwarmStore.setState({
-        phaseLabel: payload.message,
-      });
-    }
-    return;
-  }
-
-  if (payload.message) {
-    store.setStage(store.stage, payload.message);
-  }
+  return event;
 };
 
-const handleArchitectEvent = (payload: ArchitectEventPayload) => {
-  const store = useSwarmStore.getState();
-
-  if (payload.status === "started") {
-    store.setArchitectStarted(payload.message ?? "Drafting architecture...");
-    return;
-  }
-
-  if (payload.status === "architecture_ready") {
-    const score = payload.complexity_score ?? null;
-    const label = complexityLabel(score);
-    const summaryMessage = payload.message ?? (label ? `${label} identified` : "Architecture drafted");
-
-    store.setArchitectureReady({
-      message: summaryMessage,
-      complexityScore: payload.complexity_score,
-      componentList: payload.component_list ?? [],
-      diagramPlan: payload.diagram_plan ?? [],
-      docPlan: payload.doc_plan ?? [],
-      totalDiagrams: payload.diagram_count_planned,
-    });
-
-    (payload.diagram_plan ?? []).forEach((diagramType) => {
-      store.updateDiagramItem({ type: diagramType, status: "pending" });
-    });
-  }
-};
-
-const handleDocPlannerEvent = (payload: DocPlannerEventPayload) => {
-  const store = useSwarmStore.getState();
-
-  if (payload.status === "planning") {
-    useSwarmStore.setState({
-      phaseLabel: payload.message ?? "Deciding which documents to generate...",
-      complexityScore: payload.complexity_score ?? store.complexityScore,
-    });
-    return;
-  }
-
-  if (payload.status === "plan_ready") {
-    store.setDocPlan({
-      message: payload.message ?? "Documentation plan ready",
-      docPlan: payload.doc_plan ?? [],
-      totalDocs: payload.doc_count,
-    });
-  }
-};
-
-const handleDocGeneratorEvent = (payload: DocGeneratorEventPayload) => {
-  const store = useSwarmStore.getState();
-  store.setStage("running:doc_generator", "Generating documentation...");
-
-  if (payload.status === "generating") {
-    store.updateDocItem({
-      slug: payload.doc_slug,
-      status: "generating",
-    });
-    return;
-  }
-
-  if (payload.status === "doc_complete") {
-    store.updateDocItem({
-      slug: payload.doc_slug,
-      status: "done",
-      title: payload.title,
-      path: payload.path,
-      completedDocs: payload.completed_docs,
-      totalDocs: payload.total_docs,
-    });
-  }
-};
-
-const handleDiagramGeneratorEvent = (payload: DiagramGeneratorEventPayload) => {
-  const store = useSwarmStore.getState();
-  store.setStage("running:doc_generator", "Generating documentation...");
-
-  if (payload.status === "generating") {
-    store.updateDiagramItem({
-      type: payload.diagram_type,
-      status: "generating",
-    });
-    return;
-  }
-
-  if (payload.status === "diagram_complete") {
-    store.updateDiagramItem({
-      type: payload.diagram_type,
-      status: "done",
-      path: payload.path,
-      completedDiagrams: payload.completed_diagrams,
-      totalDiagrams: payload.total_diagrams,
-    });
-    return;
-  }
-
-  if (payload.status === "diagram_failed") {
-    store.updateDiagramItem({
-      type: payload.diagram_type,
-      status: "failed",
-    });
-  }
-};
-
-const handleReviewEvent = (agent: "scalability" | "security", payload: ReviewEventPayload) => {
-  const store = useSwarmStore.getState();
-  const stage = agent === "scalability" ? "running:scalability" : "running:security";
-
-  if (payload.status === "reviewing") {
-    store.setStage(
-      stage,
-      `Reviewing architecture — ${agent === "scalability" ? "Scalability" : "Security"}...`,
-    );
-    store.setReviewerState(agent, {
-      reviewing: true,
-      message: payload.message,
-    });
-    return;
-  }
-
-  if (payload.status === "review_complete") {
-    store.setReviewerState(agent, {
-      reviewing: false,
-      message: payload.message,
-      verdict: payload.verdict,
-      iteration: payload.iteration,
-    });
-
-    if (payload.verdict === "REJECTED") {
-      useSwarmStore.setState({
-        phaseLabel: "Revising architecture...",
-      });
-    }
-  }
-};
-
-const handleDoneEvent = (payload: DoneEventPayload, close: () => void) => {
-  const store = useSwarmStore.getState();
-  store.finalizeRun({
-    complexityScore: payload.complexity_score,
-    iterationCount: payload.iteration_count,
-    diagramCount: payload.diagram_count,
-    docCount: payload.doc_count,
-    diagrams: payload.diagrams,
-    docs: payload.docs,
-    scalabilityVerdict: payload.scalability_verdict,
-    securityVerdict: payload.security_verdict,
-  });
-  close();
-};
-
-export class SwarmSseClient {
+class SwarmSseClient {
   private readonly threadId: string;
-  private eventSource: EventSource | null = null;
+  private readonly userId?: string | null;
+  private readonly onTerminalClose: () => void;
+  private readonly taskRequirement?: string;
+  private abortController: AbortController | null = null;
   private reconnectTimer: number | null = null;
   private timeoutTimer: number | null = null;
-  private reconnectAttempted = false;
-  private doneReceived = false;
+  private reconnectAttempts = 0;
+  private closedManually = false;
+  private terminalStateSeen = false;
+  private opening = false;
+  private resumeEligible = false;
 
-  constructor(threadId: string) {
+  constructor(
+    threadId: string,
+    options: {
+      taskRequirement?: string;
+      userId?: string | null;
+      onTerminalClose: () => void;
+    },
+  ) {
     this.threadId = threadId;
+    this.taskRequirement = options.taskRequirement;
+    this.userId = options.userId;
+    this.onTerminalClose = options.onTerminalClose;
   }
 
   connect() {
-    const backendBase = useSwarmStore.getState().settings.backendUrl;
-    this.clearReconnectTimer();
-    this.clearTimeoutTimer();
-
-    this.eventSource = new EventSource(`${backendBase}/api/swarm/stream/${this.threadId}`);
-    this.timeoutTimer = window.setTimeout(() => {
-      if (this.doneReceived) {
-        return;
-      }
-      this.disconnect();
-      useSwarmStore.getState().setTimeoutMessage(
-        "This is taking longer than expected. The run may still be processing in the background.",
-      );
-    }, SSE_TIMEOUT_MS);
-
-    this.eventSource.onopen = () => {
-      useSwarmStore.getState().setConnection(true);
-      useSwarmStore.getState().setTimeoutMessage(null);
-      useSwarmStore.getState().setErrorMessage(null);
-    };
-
-    EVENT_NAMES.forEach((eventName) => {
-      this.eventSource?.addEventListener(eventName, (event) => {
-        const payload = parseEventData(event.data);
-        if (!payload) {
-          return;
-        }
-        this.handleNamedEvent(eventName, payload);
-      });
-    });
-
-    this.eventSource.onerror = () => {
-      if (this.doneReceived) {
-        return;
-      }
-      this.eventSource?.close();
-      this.eventSource = null;
-
-      if (this.reconnectAttempted) {
-        useSwarmStore.getState().setReconnecting(false, 2, true);
-        return;
-      }
-
-      this.reconnectAttempted = true;
-      useSwarmStore.getState().setReconnecting(true, 1, false);
-      this.reconnectTimer = window.setTimeout(() => {
-        this.connect();
-      }, RECONNECT_DELAY_MS);
-    };
-  }
-
-  private handleNamedEvent(eventName: (typeof EVENT_NAMES)[number], payload: SwarmEventPayload) {
-    switch (eventName) {
-      case "supervisor":
-        handleSupervisorEvent(payload as SupervisorEventPayload);
-        break;
-      case "architect":
-        handleArchitectEvent(payload as ArchitectEventPayload);
-        break;
-      case "doc_planner":
-        handleDocPlannerEvent(payload as DocPlannerEventPayload);
-        break;
-      case "doc_generator":
-        handleDocGeneratorEvent(payload as DocGeneratorEventPayload);
-        break;
-      case "diagram_generator":
-        handleDiagramGeneratorEvent(payload as DiagramGeneratorEventPayload);
-        break;
-      case "scalability":
-        handleReviewEvent("scalability", payload as ReviewEventPayload);
-        break;
-      case "security":
-        handleReviewEvent("security", payload as ReviewEventPayload);
-        break;
-      case "done":
-        this.doneReceived = true;
-        handleDoneEvent(payload as DoneEventPayload, () => this.disconnect());
-        break;
-    }
+    void this.openStream(this.taskRequirement);
   }
 
   disconnect() {
-    this.clearReconnectTimer();
-    this.clearTimeoutTimer();
-    this.eventSource?.close();
-    this.eventSource = null;
-    useSwarmStore.setState((state) => ({
-      connection: {
-        ...state.connection,
-        connected: false,
-        reconnecting: false,
-      },
-    }));
+    this.closedManually = true;
+    this.cleanup();
+    useSwarmStore.getState().setConnection(false);
   }
 
-  reconnectNow() {
-    this.reconnectAttempted = false;
-    this.doneReceived = false;
-    this.connect();
+  private async openStream(taskRequirement?: string) {
+    if (this.opening) {
+      return;
+    }
+
+    this.opening = true;
+    this.clearReconnectTimer();
+    this.resetTimeout();
+    useSwarmStore.getState().clearTransientMessages();
+
+    const controller = new AbortController();
+    this.abortController = controller;
+
+    try {
+      const response = await fetch(
+        swarmApi.buildStreamUrl(this.threadId, {
+          taskRequirement,
+          userId: this.userId,
+        }),
+        {
+          ...swarmApi.getStreamRequestInit(),
+          signal: controller.signal,
+        },
+      );
+
+      if (response.status === 401 || response.status === 403) {
+        useSwarmStore.getState().setAuthFailure(
+          response.status === 401
+            ? "Authentication failed for the swarm stream. Sign in again before retrying."
+            : "You do not have access to this swarm thread.",
+        );
+        this.cleanup();
+        this.onTerminalClose();
+        return;
+      }
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Swarm stream request failed: ${response.status}`);
+      }
+
+      useSwarmStore.getState().setConnection(true);
+      this.reconnectAttempts = 0;
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        this.resetTimeout();
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+
+        let boundaryIndex = buffer.indexOf("\n\n");
+        while (boundaryIndex >= 0) {
+          const rawEvent = buffer.slice(0, boundaryIndex);
+          buffer = buffer.slice(boundaryIndex + 2);
+          this.handleSseChunk(rawEvent);
+          boundaryIndex = buffer.indexOf("\n\n");
+        }
+      }
+
+      if (buffer.trim()) {
+        this.handleSseChunk(buffer);
+      }
+
+      if (!this.closedManually && !this.terminalStateSeen) {
+        if (this.resumeEligible) {
+          this.scheduleReconnect();
+        } else {
+          useSwarmStore
+            .getState()
+            .setStreamError("The initial swarm stream closed before a resumable checkpoint was established.");
+          this.onTerminalClose();
+        }
+      }
+    } catch (error) {
+      if (!this.closedManually && !controller.signal.aborted) {
+        if (this.resumeEligible) {
+          this.scheduleReconnect(error instanceof Error ? error.message : "Swarm stream interrupted.");
+        } else {
+          useSwarmStore
+            .getState()
+            .setStreamError(
+              error instanceof Error
+                ? error.message
+                : "The initial swarm stream failed before checkpoint resume was available.",
+            );
+          this.onTerminalClose();
+        }
+      }
+    } finally {
+      this.opening = false;
+    }
+  }
+
+  private handleSseChunk(rawChunk: string) {
+    const event = parseSseEvent(rawChunk);
+    if (!event.data) {
+      return;
+    }
+
+    if (event.name === "state_update") {
+      const payload = parseJsonRecord<AgentStatePatch>(event.data);
+      if (!payload) {
+        return;
+      }
+
+      this.resumeEligible = true;
+      useSwarmStore.getState().mergeStateUpdate(payload);
+
+      const currentStage = typeof payload.current_stage === "string" ? payload.current_stage.toLowerCase() : null;
+      if (currentStage && ["done", "complete", "completed", "finished"].includes(currentStage)) {
+        this.terminalStateSeen = true;
+        this.cleanup();
+        useSwarmStore.getState().setConnection(false);
+        this.onTerminalClose();
+      }
+      return;
+    }
+
+    if (event.name === "progress") {
+      const payload = parseJsonRecord<ProgressEventPayload>(event.data);
+      if (!payload) {
+        return;
+      }
+
+      this.resumeEligible = true;
+      useSwarmStore.getState().appendProgressEvent(this.threadId, payload);
+      return;
+    }
+
+    if (event.name === "error") {
+      const payload = parseJsonRecord<{ message?: string }>(event.data);
+      useSwarmStore
+        .getState()
+        .setStreamError(payload?.message ?? "The swarm stream reported an application error.");
+      this.cleanup();
+      this.onTerminalClose();
+    }
+  }
+
+  private scheduleReconnect(reason?: string) {
+    const store = useSwarmStore.getState();
+    const nextAttempt = this.reconnectAttempts + 1;
+    const failed = nextAttempt > store.connection.maxAttempts;
+
+    if (failed) {
+      store.setReconnecting(false, this.reconnectAttempts, true);
+      this.cleanup();
+      this.onTerminalClose();
+      return;
+    }
+
+    this.reconnectAttempts = nextAttempt;
+    this.cleanup();
+    store.setTimeoutMessage(reason ?? "Live updates paused. Reconnecting to resume from the last checkpoint.");
+    store.setReconnecting(true, nextAttempt, false);
+
+    const delay = RECONNECT_DELAY_MS * Math.min(2 ** (nextAttempt - 1), 4);
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.closedManually) {
+        void this.openStream();
+      }
+    }, delay);
+  }
+
+  private resetTimeout() {
+    this.clearTimeoutTimer();
+    this.timeoutTimer = window.setTimeout(() => {
+      useSwarmStore
+        .getState()
+        .setTimeoutMessage("No swarm updates arrived for several minutes. Waiting for the backend or a reconnect.");
+    }, SSE_TIMEOUT_MS);
+  }
+
+  private cleanup() {
+    this.clearReconnectTimer();
+    this.clearTimeoutTimer();
+
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
   }
 
   private clearReconnectTimer() {
@@ -362,3 +306,78 @@ export class SwarmSseClient {
     }
   }
 }
+
+const closeRecord = (threadId: string) => {
+  const existing = activeStreams.get(threadId);
+  if (!existing) {
+    return;
+  }
+
+  if (existing.releaseTimer !== null) {
+    window.clearTimeout(existing.releaseTimer);
+  }
+
+  existing.client.disconnect();
+  activeStreams.delete(threadId);
+};
+
+export const openAgentStream = ({ ownerId, threadId, taskRequirement, userId }: OpenAgentStreamOptions) => {
+  const existing = activeStreams.get(threadId);
+  if (existing) {
+    if (existing.releaseTimer !== null) {
+      window.clearTimeout(existing.releaseTimer);
+      existing.releaseTimer = null;
+    }
+
+    if (existing.ownerId === ownerId) {
+      return existing.client;
+    }
+
+    closeRecord(threadId);
+  }
+
+  const client = new SwarmSseClient(threadId, {
+    taskRequirement,
+    userId,
+    onTerminalClose: () => {
+      const current = activeStreams.get(threadId);
+      if (current?.client === client) {
+        activeStreams.delete(threadId);
+      }
+    },
+  });
+
+  activeStreams.set(threadId, {
+    ownerId,
+    client,
+    releaseTimer: null,
+    taskRequirement,
+  });
+
+  client.connect();
+  return client;
+};
+
+export const closeAgentStream = (threadId: string, ownerId?: StreamOwnerId) => {
+  const existing = activeStreams.get(threadId);
+  if (!existing) {
+    return;
+  }
+
+  if (ownerId && existing.ownerId !== ownerId) {
+    return;
+  }
+
+  if (existing.releaseTimer !== null) {
+    window.clearTimeout(existing.releaseTimer);
+  }
+
+  existing.releaseTimer = window.setTimeout(() => {
+    const current = activeStreams.get(threadId);
+    if (!current || current.ownerId !== existing.ownerId) {
+      return;
+    }
+
+    closeRecord(threadId);
+  }, 0);
+};

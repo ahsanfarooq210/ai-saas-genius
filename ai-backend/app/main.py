@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -19,10 +21,23 @@ async def lifespan(app: FastAPI):
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
         logger.info("Initializing LangGraph AsyncPostgresSaver for swarm checkpoints")
-        async with AsyncPostgresSaver.from_conn_string(pg_uri) as checkpointer:
+        pool = AsyncConnectionPool(
+            conninfo=pg_uri,
+            open=False,
+            kwargs={
+                "autocommit": True,
+                "prepare_threshold": 0,
+                "row_factory": dict_row,
+            },
+        )
+        await pool.open()
+        try:
+            checkpointer = AsyncPostgresSaver(pool)
             await checkpointer.setup()
             init_swarm_graph(checkpointer)
             yield
+        finally:
+            await pool.close()
     else:
         from langgraph.checkpoint.memory import InMemorySaver
 
