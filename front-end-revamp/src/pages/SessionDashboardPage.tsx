@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -12,9 +12,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
+import { MermaidDiagram } from "@/features/swarm/components/MermaidDiagram";
 import { useSwarmStore } from "@/features/swarm/store";
 import { closeAgentStream, openAgentStream } from "@/features/swarm/sse";
-import type { DiagramEntry, DocEntry, ReviewVerdict, WorkItemStatus } from "@/features/swarm/types";
+import type { ReviewVerdict, WorkItemStatus } from "@/features/swarm/types";
 
 const verdictStyles: Record<ReviewVerdict, string> = {
   APPROVED: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
@@ -88,30 +89,35 @@ const FinalOutputList = ({
   items,
 }: {
   title: string;
-  items: Array<{ label: string; path: string }>;
+  items: Array<{ label: string; path?: string; status: WorkItemStatus }>;
 }) => (
   <section className="rounded-xl border border-border/70 bg-card p-4">
     <h3 className="text-sm font-semibold text-foreground">{title}</h3>
     <div className="mt-3 space-y-2">
       {items.map((item) => (
         <div
-          key={`${title}-${item.path}`}
+          key={`${title}-${item.label}-${item.path ?? item.status}`}
           className="flex items-center justify-between rounded-xl border border-border/70 bg-background px-3 py-2"
         >
           <div className="min-w-0">
             <p className="truncate text-sm text-foreground">{item.label}</p>
-            <p className="truncate text-xs text-muted-foreground">{item.path}</p>
+            <p className="truncate text-xs text-muted-foreground">{item.path ?? "No storage path reported"}</p>
           </div>
-          <button
-            type="button"
-            onClick={async () => {
-              await navigator.clipboard.writeText(item.path);
-            }}
-            className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-1.5 text-xs text-foreground"
-          >
-            <Copy className="h-3.5 w-3.5" />
-            Copy Path
-          </button>
+          <div className="ml-3 flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{statusLabel(item.status)}</span>
+            {item.path ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(item.path!);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-1.5 text-xs text-foreground"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy Path
+              </button>
+            ) : null}
+          </div>
         </div>
       ))}
     </div>
@@ -156,6 +162,7 @@ const SessionDashboardPage = () => {
     securityVerdict,
     scalabilityFeedback,
     securityFeedback,
+    currentArchitectureMermaid,
     connection,
     timeoutMessage,
     errorMessage,
@@ -169,6 +176,19 @@ const SessionDashboardPage = () => {
   const currentThreadId = routeThreadId ?? threadId;
   const complexity = complexityTone(complexityScore);
   const statusTitle = progressMessage ?? currentTask ?? currentStage ?? "Waiting to begin...";
+  const latestSessionRef = useRef({
+    requirement,
+    sessionStatus,
+    threadId,
+  });
+
+  useEffect(() => {
+    latestSessionRef.current = {
+      requirement,
+      sessionStatus,
+      threadId,
+    };
+  }, [requirement, sessionStatus, threadId]);
 
   useEffect(() => {
     hydrateSessionHistory();
@@ -179,30 +199,36 @@ const SessionDashboardPage = () => {
       return;
     }
 
+    if (connection.connected || connection.reconnecting || stage !== "idle") {
+      return;
+    }
+
     const historyMatch = sessionHistory.find((item) => item.threadId === routeThreadId);
     if (historyMatch?.snapshot) {
       hydrateSessionFromHistory(routeThreadId);
     }
-  }, [hydrateSessionFromHistory, routeThreadId, sessionHistory, threadId]);
+  }, [connection.connected, connection.reconnecting, hydrateSessionFromHistory, routeThreadId, sessionHistory, stage, threadId]);
 
   useEffect(() => {
-    if (!currentThreadId || sessionStatus === "complete" || sessionStatus === "failed") {
+    if (!currentThreadId) {
       return;
     }
 
     const ownerId = `session-dashboard:${currentThreadId}`;
-    const shouldStartNewRun = threadId === currentThreadId && sessionStatus === "starting";
+    const { requirement: latestRequirement, sessionStatus: latestSessionStatus, threadId: latestThreadId } =
+      latestSessionRef.current;
+    const shouldStartNewRun = latestThreadId === currentThreadId && latestSessionStatus === "starting";
 
     openAgentStream({
       ownerId,
       threadId: currentThreadId,
-      taskRequirement: shouldStartNewRun ? requirement : undefined,
+      taskRequirement: shouldStartNewRun ? latestRequirement : undefined,
     });
 
     return () => {
       closeAgentStream(currentThreadId, ownerId);
     };
-  }, [currentThreadId, requirement, sessionStatus, threadId]);
+  }, [currentThreadId]);
 
   useEffect(() => {
     if (sessionStatus === "complete" || sessionStatus === "failed") {
@@ -213,10 +239,10 @@ const SessionDashboardPage = () => {
   const finalDocItems = useMemo(
     () =>
       generatedDocs
-        .filter((item): item is DocEntry & { path: string } => Boolean(item.path))
         .map((item) => ({
           label: item.title ?? item.doc_slug,
-          path: item.path,
+          path: item.path ?? undefined,
+          status: item.status,
         })),
     [generatedDocs],
   );
@@ -224,10 +250,10 @@ const SessionDashboardPage = () => {
   const finalDiagramItems = useMemo(
     () =>
       generatedDiagrams
-        .filter((item): item is DiagramEntry & { path: string } => Boolean(item.path))
         .map((item) => ({
           label: item.diagram_type,
-          path: item.path,
+          path: item.path ?? undefined,
+          status: item.status,
         })),
     [generatedDiagrams],
   );
@@ -306,15 +332,15 @@ const SessionDashboardPage = () => {
               </div>
             </div>
 
-            {totalDiagrams > 0 ? (
+            {totalDiagrams > 0 || generatedDiagrams.length > 0 ? (
               <div className="space-y-3 rounded-xl border border-border/70 bg-background p-4">
                 <div className="flex items-center justify-between text-sm">
                   <h3 className="font-medium text-foreground">Diagrams</h3>
                   <span className="text-muted-foreground">
-                    {completedDiagrams} / {totalDiagrams}
+                    {completedDiagrams} / {totalDiagrams || generatedDiagrams.length}
                   </span>
                 </div>
-                <Progress value={progressValue(completedDiagrams, totalDiagrams)} />
+                <Progress value={progressValue(completedDiagrams, totalDiagrams || generatedDiagrams.length)} />
                 <div className="space-y-2">
                   {generatedDiagrams.map((item) => (
                     <ItemRow key={item.diagram_type} label={item.diagram_type} status={item.status} path={item.path} />
@@ -323,15 +349,15 @@ const SessionDashboardPage = () => {
               </div>
             ) : null}
 
-            {totalDocs > 0 ? (
+            {totalDocs > 0 || generatedDocs.length > 0 ? (
               <div className="space-y-3 rounded-xl border border-border/70 bg-background p-4">
                 <div className="flex items-center justify-between text-sm">
                   <h3 className="font-medium text-foreground">Documents</h3>
                   <span className="text-muted-foreground">
-                    {completedDocs} / {totalDocs}
+                    {completedDocs} / {totalDocs || generatedDocs.length}
                   </span>
                 </div>
-                <Progress value={progressValue(completedDocs, totalDocs)} />
+                <Progress value={progressValue(completedDocs, totalDocs || generatedDocs.length)} />
                 <div className="space-y-2">
                   {generatedDocs.map((item) => (
                     <ItemRow key={item.doc_slug} label={item.title ?? item.doc_slug} status={item.status} path={item.path} />
@@ -426,6 +452,18 @@ const SessionDashboardPage = () => {
             <FinalOutputList title="Diagrams" items={finalDiagramItems} />
             <FinalOutputList title="Documents" items={finalDocItems} />
           </div>
+
+          {currentArchitectureMermaid ? (
+            <section className="rounded-2xl border border-border/70 bg-card p-5">
+              <div className="mb-4">
+                <h2 className="text-base font-semibold text-foreground">Architecture Diagram</h2>
+                <p className="text-sm text-muted-foreground">
+                  Rendered from durable `current_architecture_mermaid` state emitted by the backend stream.
+                </p>
+              </div>
+              <MermaidDiagram code={currentArchitectureMermaid} />
+            </section>
+          ) : null}
 
           <div className="grid gap-4 lg:grid-cols-2">
             {reviewTitle("Scalability Review", scalabilityVerdict, scalabilityFeedback)}

@@ -558,15 +558,10 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
 
       const nextFeed = [nextEntry, ...state.progressFeed].slice(0, MAX_PROGRESS_FEED_ITEMS);
       const nextThreadId = state.threadId ?? threadId;
-      const stageFromProgress = toStringOrNull(payload.stage) ?? state.currentStage;
 
       return {
         threadId: nextThreadId,
         progressFeed: nextFeed,
-        currentStage: stageFromProgress,
-        progressMessage: toStringOrNull(payload.message) ?? state.progressMessage,
-        currentTask: toStringOrNull(payload.message) ?? state.currentTask,
-        stage: inferStage(stageFromProgress, state.sessionStatus === "idle" ? "running" : state.sessionStatus),
         sessionStatus: state.sessionStatus === "idle" ? "running" : state.sessionStatus,
       };
     }),

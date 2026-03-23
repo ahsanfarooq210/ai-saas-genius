@@ -100,6 +100,8 @@ export interface AgentStatePatch {
   [key: string]: unknown;
 }
 
+export type AgentStateUpdateEvent = Record<string, AgentStatePatch>;
+
 export interface ProgressEventPayload {
   event?: string;
   type?: string;

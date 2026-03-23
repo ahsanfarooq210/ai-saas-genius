@@ -1,9 +1,10 @@
 import { swarmApi } from "@/features/swarm/api";
 import { useSwarmStore } from "@/features/swarm/store";
-import type { AgentStatePatch, ProgressEventPayload } from "@/features/swarm/types";
+import type { AgentStatePatch, AgentStateUpdateEvent, ProgressEventPayload } from "@/features/swarm/types";
 
 const SSE_TIMEOUT_MS = 3 * 60 * 1000;
 const RECONNECT_DELAY_MS = 1500;
+const STREAM_RELEASE_GRACE_MS = 250;
 
 type StreamOwnerId = string;
 
@@ -33,6 +34,20 @@ const parseJsonRecord = <T extends Record<string, unknown>>(raw: string): T | nu
   } catch {
     return null;
   }
+};
+
+const extractStateUpdatePatch = (payload: AgentStateUpdateEvent): AgentStatePatch | null => {
+  const entries = Object.entries(payload);
+  if (!entries.length) {
+    return null;
+  }
+
+  const [, nodePatch] = entries[0];
+  if (!isRecord(nodePatch)) {
+    return null;
+  }
+
+  return nodePatch as AgentStatePatch;
 };
 
 const parseSseEvent = (chunk: string) => {
@@ -208,7 +223,8 @@ class SwarmSseClient {
     }
 
     if (event.name === "state_update") {
-      const payload = parseJsonRecord<AgentStatePatch>(event.data);
+      const rawPayload = parseJsonRecord<AgentStateUpdateEvent>(event.data);
+      const payload = rawPayload ? extractStateUpdatePatch(rawPayload) : null;
       if (!payload) {
         return;
       }
@@ -216,7 +232,7 @@ class SwarmSseClient {
       this.resumeEligible = true;
       useSwarmStore.getState().mergeStateUpdate(payload);
 
-      const currentStage = typeof payload.current_stage === "string" ? payload.current_stage.toLowerCase() : null;
+      const currentStage = useSwarmStore.getState().currentStage?.toLowerCase() ?? null;
       if (currentStage && ["done", "complete", "completed", "finished"].includes(currentStage)) {
         this.terminalStateSeen = true;
         this.cleanup();
@@ -379,5 +395,5 @@ export const closeAgentStream = (threadId: string, ownerId?: StreamOwnerId) => {
     }
 
     closeRecord(threadId);
-  }, 0);
+  }, STREAM_RELEASE_GRACE_MS);
 };
