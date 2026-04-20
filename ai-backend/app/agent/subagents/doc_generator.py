@@ -101,6 +101,7 @@ def route_from_doc_planner(state: GlobalSwarmState) -> list[Send]:
                 component_list=state["component_list"],
                 generated_diagrams=state.get("generated_diagrams", []),
                 thread_id=state["thread_id"],
+                user_id=state.get("user_id"),
                 iteration=state.get("iteration_count", 0),
                 draft_content="",
             ),
@@ -136,7 +137,8 @@ async def doc_generator_node(state: DocWorkerState) -> dict:
     title = (
         state["doc_slug"].replace(".md", "").replace("-", " ").replace("_", " ").title()
     )
-    path = f"reports/{state['thread_id']}/iter{state['iteration']}_{state['doc_slug']}"
+    user_id = state.get("user_id") or "anonymous_user"
+    path = f"{user_id}/{state['thread_id']}/iter{state['iteration']}_{state['doc_slug']}"
     await UploadThingService().upload_file(path, content)
 
     entry = DocEntry(

@@ -14,6 +14,7 @@ class DocWorkerState(TypedDict):
         DiagramEntry
     ]  # worker references relevant diagrams by name
     thread_id: str  # needed to build file store path
+    user_id: str | None  # needed to build proper paths for user specific storage
     iteration: int  # current swarm iteration number
 
     # ── Internal scratchpad — never surfaces to GlobalSwarmState ─────────────

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 10080
     GOOGLE_API_KEY: Optional[str] = None
     UPLOAD_STORAGE_DIR: str = "uploads"
+    CLOUDINARY_CLOUD_NAME: Optional[str] = None
+    CLOUDINARY_API_KEY: Optional[str] = None
+    CLOUDINARY_API_SECRET: Optional[str] = None
     # If unset, non-localhost hosts get sslmode=require (Neon/Supabase/RDS). Override with "disable" for local Docker, etc.
     LANGGRAPH_POSTGRES_SSLMODE: Optional[str] = None
 

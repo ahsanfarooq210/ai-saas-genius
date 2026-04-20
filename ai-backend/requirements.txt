@@ -15,4 +15,4 @@ langgraph
 langchain
 langgraph-checkpoint-postgres
 psycopg[binary,pool]
-
+cloudinary
