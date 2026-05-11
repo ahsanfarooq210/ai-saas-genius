@@ -8,11 +8,12 @@ import { useSwarmStore } from "@/features/swarm/store";
 const PLACEHOLDER =
   "Design a globally distributed URL shortener that handles 10,000 requests per second with sub-100ms latency.";
 
-const MAX_CHARS = 1000;
+const MAX_CHARS = 50_000;
 
 const NewSessionPage = () => {
   const navigate = useNavigate();
   const startSession = useSwarmStore((state) => state.startSession);
+  const setRunResult = useSwarmStore((state) => state.setRunResult);
   const resetForNewSession = useSwarmStore((state) => state.resetForNewSession);
 
   const [requirement, setRequirement] = useState("");
@@ -32,10 +33,13 @@ const NewSessionPage = () => {
     setIsPending(true);
     setError(null);
     resetForNewSession();
+    startSession(trimmed);
 
     try {
-      const response = await swarmApi.start(trimmed);
-      startSession(response.thread_id, trimmed);
+      const response = await swarmApi.run({
+        task_requirement: trimmed,
+      });
+      setRunResult(response);
       navigate(`/swarm/session/${response.thread_id}`);
     } catch (submitError: unknown) {
       setError("Failed to start swarm session. Check backend connection and try again.");
@@ -75,13 +79,13 @@ const NewSessionPage = () => {
           className="inline-flex h-11 min-w-44 items-center justify-center gap-2 rounded-xl border border-primary bg-primary px-6 font-medium text-primary-foreground transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {isPending ? "Initializing..." : "Launch Swarm"}
+          {isPending ? "Running Swarm..." : "Launch Swarm"}
         </button>
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
         <p className="text-xs text-muted-foreground">
-          The swarm runs up to 5 iterations. Complex architectures may take 2–4 minutes.
+          This endpoint can take several minutes. Keep this page open until results are returned.
         </p>
       </form>
     </section>

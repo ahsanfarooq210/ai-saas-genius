@@ -36,14 +36,14 @@ const ExportPage = () => {
       generatedDiagrams
         .map((diagram) => `## ${diagram.diagram_type}\n\n\
 \
-${diagram.mermaid_code}\n\
+${diagram.content}\n\
 \
 `)
         .join("\n"),
     [generatedDiagrams],
   );
 
-  const shareLink = `${window.location.origin}/session/${threadId}`;
+  const shareLink = `${window.location.origin}/swarm/session/${threadId}`;
 
   return (
     <section className="mx-auto max-w-6xl space-y-6">
@@ -112,7 +112,7 @@ ${diagram.mermaid_code}\n\
               <FileText className="h-4 w-4" />
             </div>
             <h3 className="text-sm font-semibold text-foreground">{doc.title}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{doc.doc_type}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Document</p>
             <button
               onClick={() => triggerDownload(`${doc.title}.md`, doc.content, "text/markdown")}
               className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground"
@@ -120,6 +120,16 @@ ${diagram.mermaid_code}\n\
               <Download className="h-3.5 w-3.5" />
               Download
             </button>
+            {doc.url ? (
+              <a
+                href={doc.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground"
+              >
+                Open Uploaded File
+              </a>
+            ) : null}
           </article>
         ))}
       </div>

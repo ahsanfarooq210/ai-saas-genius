@@ -1,5 +1,5 @@
 # graph/schema.py
-from typing import TypedDict, Annotated, Optional
+from typing import Annotated, NotRequired, Optional, TypedDict
 import operator
 
 
@@ -7,6 +7,8 @@ class DiagramEntry(TypedDict):
     diagram_type: str  # "overview" | "auth-flow" | "db-schema" | "infra" | etc.
     content: str  # raw Mermaid string — "syntax_error" if linter failed 3x
     path: str  # file store key e.g. "diagrams/{thread_id}/iter2_overview.mmd"
+    url: str  # secure url link
+    upload_error: NotRequired[str]
     iteration: int  # which swarm iteration produced this
 
 
@@ -14,6 +16,8 @@ class DocEntry(TypedDict):
     title: str  # e.g. "Auth Service — Component Overview"
     content: str  # raw Markdown string
     path: str  # file store key e.g. "reports/{thread_id}/auth-service.md"
+    url: str  # secure url link
+    upload_error: NotRequired[str]
 
 
 class GlobalSwarmState(TypedDict):

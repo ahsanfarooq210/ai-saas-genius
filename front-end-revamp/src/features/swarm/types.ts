@@ -4,16 +4,19 @@ export type SessionStatus = "idle" | "running" | "paused" | "complete" | "failed
 
 export interface DiagramEntry {
   diagram_type: string;
-  mermaid_code: string;
-  components_count?: number;
-  updated_at: string;
+  content: string;
+  path: string;
+  url: string;
+  iteration: number;
+  upload_error?: string;
 }
 
 export interface DocEntry {
   title: string;
-  doc_type: string;
   content: string;
-  size_bytes?: number;
+  path: string;
+  url: string;
+  upload_error?: string;
 }
 
 export interface DebateEntry {
@@ -35,13 +38,16 @@ export interface AgentCardState {
 export interface GlobalSwarmState {
   thread_id: string;
   requirement: string;
+  user_id: string | null;
   iteration_count: number;
-  max_iterations: number;
+  docs_complete: boolean;
+  next_agent: string;
+  current_architecture_mermaid: string;
   complexity_score: number;
-  architecture_json: Record<string, unknown> | null;
+  architecture_json: Record<string, unknown>;
+  component_list: string[];
   generated_diagrams: DiagramEntry[];
   generated_docs: DocEntry[];
-  debate_log: DebateEntry[];
   doc_plan: string[];
   diagram_plan: string[];
   scalability_feedback: string;
@@ -59,15 +65,22 @@ export interface SwarmSsePayload {
 }
 
 export interface SessionSnapshot {
+  threadId: string;
+  userId: string | null;
+  requirement: string;
   iterationCount: number;
-  maxIterations: number;
+  docsComplete: boolean;
+  nextAgent: string;
+  currentArchitectureMermaid: string;
   complexityScore: number | null;
+  componentList: string[];
   generatedDiagrams: DiagramEntry[];
   generatedDocs: DocEntry[];
-  debateLog: DebateEntry[];
   docPlan: string[];
   diagramPlan: string[];
-  architectureJson: Record<string, unknown> | null;
+  architectureJson: Record<string, unknown>;
+  scalabilityFeedback: string;
+  securityFeedback: string;
 }
 
 export interface SessionHistoryItem {
@@ -79,4 +92,29 @@ export interface SessionHistoryItem {
   diagramsCount: number;
   docsCount: number;
   snapshot?: SessionSnapshot;
+}
+
+export interface SwarmRunRequest {
+  task_requirement: string;
+  thread_id?: string | null;
+  user_id?: string | null;
+}
+
+export interface SwarmRunResponse {
+  thread_id: string;
+  user_id: string | null;
+  task_requirement: string;
+  iteration_count: number;
+  docs_complete: boolean;
+  next_agent: string;
+  current_architecture_mermaid: string;
+  architecture_json: Record<string, unknown>;
+  component_list: string[];
+  complexity_score: number;
+  diagram_plan: string[];
+  doc_plan: string[];
+  generated_diagrams: DiagramEntry[];
+  generated_docs: DocEntry[];
+  scalability_feedback: string;
+  security_feedback: string;
 }

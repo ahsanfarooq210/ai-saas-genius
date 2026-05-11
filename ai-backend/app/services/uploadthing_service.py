@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 from typing import Any
 import cloudinary
 import cloudinary.uploader
@@ -82,20 +83,25 @@ class UploadThingService:
         if not self.is_configured:
             raise RuntimeError("Cloudinary is not configured.")
 
-        # Ensure content is a byte-string for raw uploads
+        # Cloudinary's uploader expects a path, URL, or file-like object. Passing
+        # raw bytes directly can be interpreted as a path-like value.
         data = content.encode("utf-8") if isinstance(content, str) else content
 
         def _write() -> dict[str, Any]:
             res = cloudinary.uploader.upload(
-                data,
+                io.BytesIO(data),
                 resource_type="raw",
                 public_id=key,
                 overwrite=True,
             )
+            secure_url = res.get("secure_url") or res.get("url") or ""
             return {
-                "key": res.get("public_id"),
+                "key": res.get("public_id") or key,
                 "size": res.get("bytes"),
-                "path": res.get("secure_url"),
+                "url": secure_url,
+                # Backwards-compatible alias for callers that previously read
+                # the URL from "path".
+                "path": secure_url,
             }
 
         return await asyncio.to_thread(_write)

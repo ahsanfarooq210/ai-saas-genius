@@ -1,12 +1,11 @@
 import { create } from "zustand";
 import type {
   AgentCardState,
-  DebateEntry,
   DiagramEntry,
   DocEntry,
   SessionHistoryItem,
   SessionStatus,
-  SwarmStateDiff,
+  SwarmRunResponse,
 } from "@/features/swarm/types";
 
 interface SettingsState {
@@ -19,17 +18,22 @@ interface SettingsState {
 
 interface SwarmStoreState {
   threadId: string | null;
+  userId: string | null;
   requirement: string;
   sessionStatus: SessionStatus;
   iterationCount: number;
-  maxIterations: number;
+  docsComplete: boolean;
+  nextAgent: string;
+  currentArchitectureMermaid: string;
   complexityScore: number | null;
-  architectureJson: Record<string, unknown> | null;
+  architectureJson: Record<string, unknown>;
+  componentList: string[];
   generatedDiagrams: DiagramEntry[];
   generatedDocs: DocEntry[];
-  debateLog: DebateEntry[];
   docPlan: string[];
   diagramPlan: string[];
+  scalabilityFeedback: string;
+  securityFeedback: string;
   agentStates: {
     architect: AgentCardState;
     scalability: AgentCardState;
@@ -48,18 +52,12 @@ interface SwarmStoreState {
   settings: SettingsState;
   sessionHistory: SessionHistoryItem[];
   exportReady: boolean;
-  startSession: (threadId: string, requirement: string) => void;
+  startSession: (requirement: string) => void;
+  setRunResult: (result: SwarmRunResponse) => void;
   resetForNewSession: () => void;
   setSessionStatus: (status: SessionStatus) => void;
   setConnection: (connected: boolean) => void;
   setReconnecting: (reconnecting: boolean, attempts: number, failed: boolean) => void;
-  setArchitectTask: (task: string) => void;
-  setReviewerActive: (agent: "scalability" | "security", task: string) => void;
-  applyStateDiff: (node: string, diff: SwarmStateDiff) => void;
-  openHitlModal: () => void;
-  closeHitlModal: () => void;
-  setHitlCritiqueOpen: (open: boolean) => void;
-  completeSession: () => void;
   setExportReady: (ready: boolean) => void;
   updateSettings: (settings: Partial<SettingsState>) => void;
   hydrateSettings: () => void;
@@ -86,17 +84,6 @@ const baseAgentState = (model: string): AgentCardState => ({
   lastIteration: 0,
 });
 
-const parseFeedback = (feedback: string): { status: "APPROVED" | "REJECTED"; markdown: string } => {
-  const normalized = feedback.trim();
-  const status = /status\s*:\s*approved|\bapproved\b/i.test(normalized)
-    ? "APPROVED"
-    : "REJECTED";
-  return {
-    status,
-    markdown: normalized,
-  };
-};
-
 const toDocPlan = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value.map((item) => String(item));
@@ -104,19 +91,27 @@ const toDocPlan = (value: unknown): string[] => {
   return [];
 };
 
+const isApprovedFeedback = (feedback: string): boolean =>
+  /status\s*:\s*approved|approved\b/i.test(feedback.trim());
+
 export const useSwarmStore = create<SwarmStoreState>((set) => ({
   threadId: null,
+  userId: null,
   requirement: "",
   sessionStatus: "idle",
   iterationCount: 0,
-  maxIterations: 5,
+  docsComplete: false,
+  nextAgent: "",
+  currentArchitectureMermaid: "",
   complexityScore: null,
-  architectureJson: null,
+  architectureJson: {},
+  componentList: [],
   generatedDiagrams: [],
   generatedDocs: [],
-  debateLog: [],
   docPlan: [],
   diagramPlan: [],
+  scalabilityFeedback: "",
+  securityFeedback: "",
   agentStates: {
     architect: baseAgentState("GPT-4o"),
     scalability: baseAgentState("GPT-4o"),
@@ -136,31 +131,98 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
   sessionHistory: [],
   exportReady: false,
 
-  startSession: (threadId, requirement) =>
+  startSession: (requirement) =>
     set(() => ({
-      threadId,
       requirement,
       sessionStatus: "running",
-      phaseLabel: "Iteration 1 of 5 — Initializing swarm",
+      phaseLabel: "Running architecture swarm (this can take a few minutes)...",
+      connection: {
+        connected: true,
+        reconnecting: false,
+        attempts: 0,
+        maxAttempts: 10,
+        permanentlyFailed: false,
+      },
       hitlModalOpen: false,
       hitlCritiqueOpen: false,
       exportReady: false,
     })),
 
+  setRunResult: (result) =>
+    set((state) => {
+      const scalabilityApproved = isApprovedFeedback(result.scalability_feedback);
+      const securityApproved = isApprovedFeedback(result.security_feedback);
+
+      return {
+        ...state,
+        threadId: result.thread_id,
+        userId: result.user_id,
+        requirement: result.task_requirement,
+        sessionStatus: "complete",
+        iterationCount: result.iteration_count,
+        docsComplete: result.docs_complete,
+        nextAgent: result.next_agent,
+        currentArchitectureMermaid: result.current_architecture_mermaid,
+        complexityScore: result.complexity_score,
+        architectureJson: result.architecture_json ?? {},
+        componentList: result.component_list ?? [],
+        generatedDiagrams: result.generated_diagrams ?? [],
+        generatedDocs: result.generated_docs ?? [],
+        docPlan: toDocPlan(result.doc_plan),
+        diagramPlan: toDocPlan(result.diagram_plan),
+        scalabilityFeedback: result.scalability_feedback ?? "",
+        securityFeedback: result.security_feedback ?? "",
+        exportReady: true,
+        phaseLabel: `Completed in ${result.iteration_count} iteration${result.iteration_count === 1 ? "" : "s"}`,
+        connection: {
+          connected: true,
+          reconnecting: false,
+          attempts: 0,
+          maxAttempts: 10,
+          permanentlyFailed: false,
+        },
+        agentStates: {
+          architect: {
+            ...state.agentStates.architect,
+            state: "idle",
+            currentTask: "",
+            lastIteration: result.iteration_count,
+          },
+          scalability: {
+            ...state.agentStates.scalability,
+            state: scalabilityApproved ? "approved" : "rejected",
+            currentTask: "",
+            lastIteration: result.iteration_count,
+          },
+          security: {
+            ...state.agentStates.security,
+            state: securityApproved ? "approved" : "rejected",
+            currentTask: "",
+            lastIteration: result.iteration_count,
+          },
+        },
+      };
+    }),
+
   resetForNewSession: () =>
     set(() => ({
       threadId: null,
+      userId: null,
       requirement: "",
       sessionStatus: "idle",
       iterationCount: 0,
-      maxIterations: 5,
+      docsComplete: false,
+      nextAgent: "",
+      currentArchitectureMermaid: "",
       complexityScore: null,
-      architectureJson: null,
+      architectureJson: {},
+      componentList: [],
       generatedDiagrams: [],
       generatedDocs: [],
-      debateLog: [],
       docPlan: [],
       diagramPlan: [],
+      scalabilityFeedback: "",
+      securityFeedback: "",
       agentStates: {
         architect: baseAgentState("GPT-4o"),
         scalability: baseAgentState("GPT-4o"),
@@ -201,198 +263,6 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
         attempts,
         permanentlyFailed: failed,
       },
-    })),
-
-  setArchitectTask: (task) =>
-    set((state) => ({
-      phaseLabel: `Iteration ${Math.max(state.iterationCount, 1)} of ${state.maxIterations} — ${task}`,
-      agentStates: {
-        architect: {
-          ...state.agentStates.architect,
-          state: "active",
-          currentTask: task,
-          lastIteration: Math.max(state.iterationCount, 1),
-        },
-        scalability:
-          state.agentStates.scalability.state === "active"
-            ? { ...state.agentStates.scalability, state: "idle", currentTask: "" }
-            : state.agentStates.scalability,
-        security:
-          state.agentStates.security.state === "active"
-            ? { ...state.agentStates.security, state: "idle", currentTask: "" }
-            : state.agentStates.security,
-      },
-    })),
-
-  setReviewerActive: (agent, task) =>
-    set((state) => ({
-      phaseLabel: `Iteration ${Math.max(state.iterationCount, 1)} of ${state.maxIterations} — ${task}`,
-      agentStates: {
-        architect:
-          state.agentStates.architect.state === "active"
-            ? { ...state.agentStates.architect, state: "idle", currentTask: "" }
-            : state.agentStates.architect,
-        scalability: {
-          ...state.agentStates.scalability,
-          state: agent === "scalability" ? "active" : state.agentStates.scalability.state,
-          currentTask: agent === "scalability" ? task : state.agentStates.scalability.currentTask,
-          lastIteration: agent === "scalability" ? Math.max(state.iterationCount, 1) : state.agentStates.scalability.lastIteration,
-        },
-        security: {
-          ...state.agentStates.security,
-          state: agent === "security" ? "active" : state.agentStates.security.state,
-          currentTask: agent === "security" ? task : state.agentStates.security.currentTask,
-          lastIteration: agent === "security" ? Math.max(state.iterationCount, 1) : state.agentStates.security.lastIteration,
-        },
-      },
-    })),
-
-  applyStateDiff: (node, diff) =>
-    set((state) => {
-      const nextDiagrams = [...state.generatedDiagrams];
-      if (Array.isArray(diff.generated_diagrams)) {
-        diff.generated_diagrams.forEach((diagram) => {
-          const index = nextDiagrams.findIndex((item) => item.diagram_type === diagram.diagram_type);
-          const normalized: DiagramEntry = {
-            ...diagram,
-            updated_at: new Date().toISOString(),
-          };
-          if (index >= 0) {
-            nextDiagrams[index] = normalized;
-          } else {
-            nextDiagrams.push(normalized);
-          }
-        });
-      }
-
-      const nextDocs = [...state.generatedDocs];
-      if (Array.isArray(diff.generated_docs)) {
-        diff.generated_docs.forEach((doc) => {
-          const index = nextDocs.findIndex((item) => item.title === doc.title);
-          if (index >= 0) {
-            nextDocs[index] = doc;
-          } else {
-            nextDocs.push(doc);
-          }
-        });
-      }
-
-      const nextDebateLog = [...state.debateLog];
-
-      if (typeof diff.scalability_feedback === "string" && diff.scalability_feedback.trim()) {
-        const parsed = parseFeedback(diff.scalability_feedback);
-        nextDebateLog.push({
-          id: crypto.randomUUID(),
-          agent: "scalability",
-          iteration: diff.iteration_count ?? state.iterationCount,
-          markdown: parsed.markdown,
-          status: parsed.status,
-          created_at: new Date().toISOString(),
-        });
-      }
-
-      if (typeof diff.security_feedback === "string" && diff.security_feedback.trim()) {
-        const parsed = parseFeedback(diff.security_feedback);
-        nextDebateLog.push({
-          id: crypto.randomUUID(),
-          agent: "security",
-          iteration: diff.iteration_count ?? state.iterationCount,
-          markdown: parsed.markdown,
-          status: parsed.status,
-          created_at: new Date().toISOString(),
-        });
-      }
-
-      const scalabilityStatus =
-        typeof diff.scalability_feedback === "string" && diff.scalability_feedback.trim()
-          ? parseFeedback(diff.scalability_feedback).status
-          : null;
-      const securityStatus =
-        typeof diff.security_feedback === "string" && diff.security_feedback.trim()
-          ? parseFeedback(diff.security_feedback).status
-          : null;
-
-      const nextIteration = diff.iteration_count ?? state.iterationCount;
-      const nextMaxIterations = diff.max_iterations ?? state.maxIterations;
-
-      const nextState = {
-        threadId: diff.thread_id ?? state.threadId,
-        iterationCount: nextIteration,
-        maxIterations: nextMaxIterations,
-        complexityScore: diff.complexity_score ?? state.complexityScore,
-        architectureJson: diff.architecture_json ?? state.architectureJson,
-        generatedDiagrams: nextDiagrams,
-        generatedDocs: nextDocs,
-        debateLog: nextDebateLog,
-        docPlan: diff.doc_plan ? toDocPlan(diff.doc_plan) : state.docPlan,
-        diagramPlan: diff.diagram_plan ? toDocPlan(diff.diagram_plan) : state.diagramPlan,
-        sessionStatus: diff.status ?? state.sessionStatus,
-        agentStates: {
-          architect: {
-            ...state.agentStates.architect,
-            state: node === "write_state_node" ? "idle" : state.agentStates.architect.state,
-          },
-          scalability: {
-            ...state.agentStates.scalability,
-            state:
-              scalabilityStatus === "APPROVED"
-                ? "approved"
-                : scalabilityStatus === "REJECTED"
-                  ? "rejected"
-                  : state.agentStates.scalability.state,
-            currentTask: scalabilityStatus ? "" : state.agentStates.scalability.currentTask,
-            lastIteration: scalabilityStatus
-              ? nextIteration
-              : state.agentStates.scalability.lastIteration,
-          },
-          security: {
-            ...state.agentStates.security,
-            state:
-              securityStatus === "APPROVED"
-                ? "approved"
-                : securityStatus === "REJECTED"
-                  ? "rejected"
-                  : state.agentStates.security.state,
-            currentTask: securityStatus ? "" : state.agentStates.security.currentTask,
-            lastIteration: securityStatus ? nextIteration : state.agentStates.security.lastIteration,
-          },
-        },
-      };
-
-      const approvalCount = [
-        nextState.agentStates.scalability.state,
-        nextState.agentStates.security.state,
-      ].filter((value) => value === "approved").length;
-
-      const phaseLabel =
-        node === "supervisor_node"
-          ? `Iteration ${Math.max(nextIteration, 1)} of ${nextMaxIterations} — Supervisor routing`
-          : state.phaseLabel;
-
-      return {
-        ...nextState,
-        phaseLabel:
-          nextState.sessionStatus === "paused"
-            ? `Iteration ${nextIteration} complete — awaiting human review`
-            : nextState.sessionStatus === "complete"
-              ? `Completed in ${nextIteration} iteration${nextIteration === 1 ? "" : "s"} — ${approvalCount}/2 reviewers approved`
-              : phaseLabel,
-      };
-    }),
-
-  openHitlModal: () => set(() => ({ hitlModalOpen: true, hitlCritiqueOpen: false, sessionStatus: "paused" })),
-
-  closeHitlModal: () => set(() => ({ hitlModalOpen: false, hitlCritiqueOpen: false })),
-
-  setHitlCritiqueOpen: (open) => set(() => ({ hitlCritiqueOpen: open })),
-
-  completeSession: () =>
-    set((state) => ({
-      sessionStatus: "complete",
-      hitlModalOpen: true,
-      hitlCritiqueOpen: false,
-      exportReady: true,
-      phaseLabel: `Completed in ${state.iterationCount} iteration${state.iterationCount === 1 ? "" : "s"}`,
     })),
 
   setExportReady: (ready) => set(() => ({ exportReady: ready })),
@@ -442,15 +312,22 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
         diagramsCount: state.generatedDiagrams.length,
         docsCount: state.generatedDocs.length,
         snapshot: {
+          threadId: state.threadId,
+          userId: state.userId,
+          requirement: state.requirement,
           iterationCount: state.iterationCount,
-          maxIterations: state.maxIterations,
+          docsComplete: state.docsComplete,
+          nextAgent: state.nextAgent,
+          currentArchitectureMermaid: state.currentArchitectureMermaid,
           complexityScore: state.complexityScore,
+          componentList: state.componentList,
           generatedDiagrams: state.generatedDiagrams,
           generatedDocs: state.generatedDocs,
-          debateLog: state.debateLog,
           docPlan: state.docPlan,
           diagramPlan: state.diagramPlan,
-          architectureJson: state.architectureJson,
+          architectureJson: state.architectureJson ?? {},
+          scalabilityFeedback: state.scalabilityFeedback,
+          securityFeedback: state.securityFeedback,
         },
       };
       const deduped = [nextEntry, ...state.sessionHistory.filter((item) => item.threadId !== state.threadId)];
@@ -484,16 +361,21 @@ export const useSwarmStore = create<SwarmStoreState>((set) => ({
       const snapshot = historyMatch.snapshot;
       return {
         threadId: historyMatch.threadId,
+        userId: snapshot.userId,
         requirement: historyMatch.requirement,
         iterationCount: snapshot.iterationCount,
-        maxIterations: snapshot.maxIterations,
+        docsComplete: snapshot.docsComplete,
+        nextAgent: snapshot.nextAgent,
+        currentArchitectureMermaid: snapshot.currentArchitectureMermaid,
         complexityScore: snapshot.complexityScore,
-        architectureJson: snapshot.architectureJson,
+        architectureJson: snapshot.architectureJson ?? {},
+        componentList: snapshot.componentList ?? [],
         generatedDiagrams: snapshot.generatedDiagrams,
         generatedDocs: snapshot.generatedDocs,
-        debateLog: snapshot.debateLog,
         docPlan: snapshot.docPlan,
         diagramPlan: snapshot.diagramPlan,
+        scalabilityFeedback: snapshot.scalabilityFeedback ?? "",
+        securityFeedback: snapshot.securityFeedback ?? "",
         sessionStatus: historyMatch.status === "Complete" ? "complete" : historyMatch.status === "Failed" ? "failed" : "running",
         hitlModalOpen: false,
         hitlCritiqueOpen: false,

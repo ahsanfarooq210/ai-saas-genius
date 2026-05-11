@@ -1,85 +1,55 @@
-import {
-  Background,
-  Controls,
-  MiniMap,
-  ReactFlow,
-  type Edge,
-  type Node,
-} from "@xyflow/react";
-
-const nodes: Node[] = [
-  {
-    id: "supervisor",
-    data: { label: "Supervisor" },
-    position: { x: 0, y: 0 },
-    style: {
-      background: "#18181b",
-      color: "#f4f4f5",
-      border: "1px solid #3f3f46",
-      borderRadius: 4,
-      fontSize: 12,
-      padding: 4,
-      width: 110,
-    },
-  },
-  {
-    id: "architect",
-    data: { label: "Architect" },
-    position: { x: -150, y: 90 },
-    style: {
-      background: "#18181b",
-      color: "#f4f4f5",
-      border: "1px solid #3f3f46",
-      borderRadius: 4,
-      fontSize: 12,
-      padding: 4,
-      width: 110,
-    },
-  },
-  {
-    id: "scalability",
-    data: { label: "Scalability" },
-    position: { x: 0, y: 90 },
-    style: {
-      background: "#18181b",
-      color: "#f4f4f5",
-      border: "1px solid #3f3f46",
-      borderRadius: 4,
-      fontSize: 12,
-      padding: 4,
-      width: 110,
-    },
-  },
-  {
-    id: "security",
-    data: { label: "Security" },
-    position: { x: 150, y: 90 },
-    style: {
-      background: "#18181b",
-      color: "#f4f4f5",
-      border: "1px solid #3f3f46",
-      borderRadius: 4,
-      fontSize: 12,
-      padding: 4,
-      width: 110,
-    },
-  },
-];
-
-const edges: Edge[] = [
-  { id: "s-a", source: "supervisor", target: "architect", animated: true, style: { stroke: "#0ea5e9" } },
-  { id: "s-sc", source: "supervisor", target: "scalability", animated: true, style: { stroke: "#0ea5e9" } },
-  { id: "s-se", source: "supervisor", target: "security", animated: true, style: { stroke: "#0ea5e9" } },
-];
+import { useEffect, useMemo, useState } from "react";
+import { api } from "@/lib/api";
+import { MermaidDiagram } from "@/features/swarm/components/MermaidDiagram";
 
 export const AgentGraphFlow = () => {
+  const [imageUnavailable, setImageUnavailable] = useState(false);
+  const [mermaidGraph, setMermaidGraph] = useState<string>("");
+
+  useEffect(() => {
+    if (!imageUnavailable) {
+      return;
+    }
+    let mounted = true;
+    const loadFallbackMermaid = async () => {
+      try {
+        const response = await api.agent.getMermaidGraph(false);
+        if (mounted) {
+          setMermaidGraph(response.mermaid);
+        }
+      } catch {
+        if (mounted) {
+          setMermaidGraph("");
+        }
+      }
+    };
+    void loadFallbackMermaid();
+    return () => {
+      mounted = false;
+    };
+  }, [imageUnavailable]);
+
+  const graphImageUrl = useMemo(() => api.agent.getImageGraphUrl(false), []);
+
   return (
-    <div className="h-44 overflow-hidden rounded-sm border border-zinc-800 bg-zinc-900/40">
-      <ReactFlow nodes={nodes} edges={edges} fitView fitViewOptions={{ padding: 0.2 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} panOnDrag={false} zoomOnScroll={false} zoomOnPinch={false} zoomOnDoubleClick={false}>
-        <Background color="#27272a" gap={16} />
-        <MiniMap zoomable pannable nodeColor="#18181b" maskColor="rgba(0,0,0,0.3)" />
-        <Controls showInteractive={false} className="bg-zinc-900!" />
-      </ReactFlow>
-    </div>
+    <section className="rounded-xl border border-border/70 bg-card p-3">
+      <h3 className="mb-3 text-sm font-semibold text-foreground">Swarm Topology</h3>
+      {!imageUnavailable ? (
+        <div className="overflow-hidden rounded-xl border border-border">
+          <img
+            src={graphImageUrl}
+            alt="LangGraph topology"
+            className="h-56 w-full object-contain"
+            onError={() => setImageUnavailable(true)}
+          />
+        </div>
+      ) : mermaidGraph ? (
+        <MermaidDiagram code={mermaidGraph} />
+      ) : (
+        <div className="flex h-56 items-center justify-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
+          Topology graph unavailable.
+        </div>
+      )}
+    </section>
   );
 };

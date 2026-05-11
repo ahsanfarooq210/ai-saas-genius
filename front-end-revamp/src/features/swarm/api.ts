@@ -1,77 +1,23 @@
-import type { SessionHistoryItem } from "@/features/swarm/types";
-
-interface StartSwarmResponse {
-  thread_id: string;
-}
-
-interface HumanFeedbackPayload {
-  thread_id: string;
-  critique: string;
-}
+import { api } from "@/lib/api";
+import type { SessionHistoryItem, SwarmRunRequest, SwarmRunResponse } from "@/features/swarm/types";
 
 export const swarmApi = {
-  async start(requirement: string): Promise<StartSwarmResponse> {
-    const response = await fetch(`${getBackendBase()}/api/swarm/start`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ requirement }),
-    });
-    if (!response.ok) {
-      throw new Error("Failed to start swarm");
-    }
-    return (await response.json()) as StartSwarmResponse;
+  /**
+   * POST /api/v1/agent/run
+   * Triggers the swarm and returns the full final SwarmRunResponse.
+   * This is a long-running request and can take several minutes.
+   */
+  async run(payload: SwarmRunRequest): Promise<SwarmRunResponse> {
+    return api.agent.run(payload);
   },
 
-  async humanFeedback(payload: HumanFeedbackPayload): Promise<void> {
-    const response = await fetch(`${getBackendBase()}/api/swarm/human-feedback`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      throw new Error("Failed to submit human feedback");
-    }
-  },
-
-  async listSessions(page = 1): Promise<{ items: SessionHistoryItem[]; hasMore: boolean }> {
-    try {
-      const response = await fetch(
-        `${getBackendBase()}/api/swarm/sessions?page=${page}`,
-      );
-      if (!response.ok) {
-        throw new Error("Failed to list sessions");
-      }
-      const data = (await response.json()) as {
-        items: SessionHistoryItem[];
-        has_more: boolean;
-      };
-      return {
-        items: data.items,
-        hasMore: data.has_more,
-      };
-    } catch {
-      return {
-        items: [],
-        hasMore: false,
-      };
-    }
+  /**
+   * Session history is stored locally (no backend list endpoint in the current spec).
+   * Returns an empty list with hasMore: false when nothing is stored locally.
+   */
+  async listSessions(_page = 1): Promise<{ items: SessionHistoryItem[]; hasMore: boolean }> {
+    return { items: [], hasMore: false };
   },
 };
 
-const getBackendBase = () => {
-  const fallback = (import.meta.env.VITE_SERVER_URL as string | undefined) ?? "http://localhost:8000";
-  const raw = localStorage.getItem("swarm_settings");
-  if (!raw) {
-    return fallback;
-  }
-  try {
-    const parsed = JSON.parse(raw) as { backendUrl?: string };
-    return parsed.backendUrl ?? fallback;
-  } catch {
-    return fallback;
-  }
-};
+export type { SwarmRunResponse };

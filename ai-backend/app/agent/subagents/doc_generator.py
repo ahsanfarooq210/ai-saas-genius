@@ -1,5 +1,6 @@
 # graph/doc_generator_graph.py
 import json
+import logging
 import re
 
 from app.agent.llm import llm_gemini
@@ -11,6 +12,8 @@ from langgraph.types import Send
 from app.agent.state.doc_worker_state import DocWorkerState
 from app.agent.state.global_swarm_state import DocEntry, GlobalSwarmState
 from app.services.uploadthing_service import UploadThingService
+
+logger = logging.getLogger(__name__)
 
 # from app.agent.storage.file_store import FileStore
 
@@ -139,13 +142,24 @@ async def doc_generator_node(state: DocWorkerState) -> dict:
     )
     user_id = state.get("user_id") or "anonymous_user"
     path = f"{user_id}/{state['thread_id']}/iter{state['iteration']}_{state['doc_slug']}"
-    await UploadThingService().upload_file(path, content)
+    url = ""
+    upload_error = None
+    try:
+        upload_res = await UploadThingService().upload_file(path, content)
+        if isinstance(upload_res, dict):
+            url = str(upload_res.get("url") or upload_res.get("path") or "")
+    except Exception as exc:
+        upload_error = str(exc)
+        logger.warning("Failed to upload document artifact %s: %s", path, exc)
 
     entry = DocEntry(
         title=title,
         content=content,
         path=path,
+        url=url,
     )
+    if upload_error:
+        entry["upload_error"] = upload_error
     return {
         "generated_docs": [entry],
     }

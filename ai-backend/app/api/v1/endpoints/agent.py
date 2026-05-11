@@ -3,7 +3,11 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
 
-from app.schemas.agent import AgentGraphMermaidResponse, SwarmRunRequest, SwarmRunResponse
+from app.schemas.agent import (
+    AgentGraphMermaidResponse,
+    SwarmRunRequest,
+    SwarmRunResponse,
+)
 from app.services.swarm_service import (
     get_swarm_graph_mermaid,
     get_swarm_graph_png,

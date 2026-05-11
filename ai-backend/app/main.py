@@ -16,13 +16,29 @@ async def lifespan(app: FastAPI):
 
     pg_uri = settings.langgraph_postgres_uri()
     if pg_uri:
+        from psycopg_pool import AsyncConnectionPool
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-        logger.info("Initializing LangGraph AsyncPostgresSaver for swarm checkpoints")
-        async with AsyncPostgresSaver.from_conn_string(pg_uri) as checkpointer:
+        logger.info("Initializing LangGraph AsyncPostgresSaver with connection pool for swarm checkpoints")
+        # Use a pool so idle/dropped SSL connections (Neon, Supabase, RDS) are
+        # automatically recycled rather than crashing on the first request after
+        # the cloud provider closes the stale socket.
+        pool = AsyncConnectionPool(
+            conninfo=pg_uri,
+            min_size=1,
+            max_size=10,
+            # Validate connection before handing it out – catches stale sockets.
+            kwargs={"autocommit": True},
+            open=False,
+        )
+        await pool.open()
+        try:
+            checkpointer = AsyncPostgresSaver(pool)
             await checkpointer.setup()
             init_swarm_graph(checkpointer)
             yield
+        finally:
+            await pool.close()
     else:
         from langgraph.checkpoint.memory import InMemorySaver
 

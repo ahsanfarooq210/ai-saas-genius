@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { axiosClient } from "../lib/axios";
+import { api } from "../lib/api";
 
 interface User {
   id: string;
@@ -25,11 +25,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const response = await axiosClient.get("/auth/me");
+        const userData = await api.auth.me();
         setUser({
-          id: response.data.id,
-          name: response.data.full_name,
-          email: response.data.email,
+          id: userData.id.toString(),
+          name: userData.full_name,
+          email: userData.email,
         });
       } catch (error) {
         setUser(null);
@@ -43,11 +43,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (data: any) => {
     try {
-      const response = await axiosClient.post("/auth/signin", data);
+      await api.auth.signin(data);
+      const userData = await api.auth.me();
       setUser({
-        id: response.data._id,
-        name: response.data.name,
-        email: response.data.email,
+        id: userData.id.toString(),
+        name: userData.full_name,
+        email: userData.email,
       });
       return { error: null };
     } catch (error: any) {
@@ -57,12 +58,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signUp = async (data: any) => {
     try {
-      const response = await axiosClient.post("/auth/signup", data);
-      setUser({
-        id: response.data._id,
-        name: response.data.name,
-        email: response.data.email,
-      });
+      await api.auth.signup(data);
+      // Auto-login after signup
+      if (data.password) {
+        await api.auth.signin({ email: data.email, password: data.password });
+        const userData = await api.auth.me();
+        setUser({
+          id: userData.id.toString(),
+          name: userData.full_name,
+          email: userData.email,
+        });
+      }
       return { error: null };
     } catch (error: any) {
       return { error: { message: error.response?.data?.message || "Signup failed" } };
@@ -71,7 +77,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     try {
-      await axiosClient.post("/auth/logout");
+      // Clear localStorage tokens
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      // Optionally call a logout endpoint if it exists: await axiosClient.post("/auth/logout");
       setUser(null);
     } catch (error) {
       console.error("Logout error", error);
@@ -105,11 +114,6 @@ export const useSession = () => {
 export const authClient = {
   signIn: {
     email: async (_data: any) => {
-      // This is a bit hacky because we need access to the context outside of a hook for sign in
-      // However, looking at the code, SignInPage actually uses it inside the component.
-      // A better approach is to provide signIn from useAuth in SignInPage.
-      // But to preserve the API as much as possible, we could use a global approach or just update the pages.
-      // For now, we'll implement this properly in the pages.
       throw new Error("Use useAuth() signIn instead of authClient.signIn.email");
     }
   },

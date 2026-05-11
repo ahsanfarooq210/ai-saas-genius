@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -11,6 +12,9 @@ from langgraph.graph import END, StateGraph
 from app.agent.llm import llm_gemini
 from app.agent.message_content import message_content_to_str
 from app.agent.state.global_swarm_state import DiagramEntry, GlobalSwarmState
+from app.services.uploadthing_service import UploadThingService
+
+logger = logging.getLogger(__name__)
 
 ARCHITECT_PROMPT = """You are a senior systems architect.
 
@@ -102,12 +106,25 @@ async def architect_node(state: GlobalSwarmState) -> dict:
     thread_id = state["thread_id"]
     path = f"diagrams/{thread_id}/iter{iteration}_overview.mmd"
 
+    url = ""
+    upload_error = None
+    try:
+        upload_res = await UploadThingService().upload_file(path, mermaid)
+        if isinstance(upload_res, dict):
+            url = str(upload_res.get("url") or upload_res.get("path") or "")
+    except Exception as exc:
+        upload_error = str(exc)
+        logger.warning("Failed to upload diagram artifact %s: %s", path, exc)
+
     overview: DiagramEntry = {
         "diagram_type": "overview",
         "content": mermaid,
         "path": path,
+        "url": url,
         "iteration": iteration,
     }
+    if upload_error:
+        overview["upload_error"] = upload_error
 
     return {
         "current_architecture_mermaid": mermaid,
