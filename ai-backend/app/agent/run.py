@@ -4,6 +4,7 @@ from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
 from app.agent.state.schema import GlobalSwarmState
 from app.agent.subagents.lead_architect import LeadArchitect
+from app.agent.subagents.comlexity_analyzer import ComplexityAnalyzer
 
 
 class GraphBuilder:
@@ -12,10 +13,15 @@ class GraphBuilder:
         self.graph = None
 
     def build_graph(self):
-        lead_architect_node=LeadArchitect()
         builder = StateGraph(GlobalSwarmState)
-        builder.add_node("lead_architect", lead_architect_node.draft_architecture_node)
-        builder.add_edge(START, "lead_architect")
-        builder.add_edge("lead_architect", END)
+        builder.add_node(
+            "draft_architecture_node", LeadArchitect().draft_architecture_node
+        )
+        builder.add_node(
+            "score_complexity_node", ComplexityAnalyzer().score_complexity_node
+        )
+        builder.add_edge(START, "draft_architecture_node")
+        builder.add_edge("draft_architecture_node", "score_complexity_node")
+        builder.add_edge("score_complexity_node", END)
         self.graph = builder.compile()
         return self.graph
