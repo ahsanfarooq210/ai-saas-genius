@@ -1,94 +1,47 @@
-from __future__ import annotations
-
 import json
-import re
-from typing import Any
 
 from app.agent.state.schema import GlobalSwarmState
 from app.agent.subagents._schema import ArchitectureDraft
+from app.agent.subagents.llm_reply import assistant_text, json_object_from_text
 from app.core.llm import get_chat_llm
 
 _llm = get_chat_llm()
 
-_SYSTEM_PROMPT = """\
-You are a senior solutions architect.
-Given a system design requirement, identify all the components needed,
-describe each one clearly, and list their dependencies.
+_SYSTEM = """You are a solutions architect. From the requirement, list 3–12 concrete components
+(API Gateway, Auth Service, MongoDB, etc.) with a one-line description each and which other
+components they depend on (exact names, or []).
 
-Rules:
-- Be specific: name real components (e.g. "API Gateway", "Auth Service", "PostgreSQL")
-- Keep component names concise — they become file names later
-- For each component use the structured fields: name, description, relations (other component names it depends on; use [] if none)
-- Aim for 3–12 components depending on the complexity of the system
-
-Output format (critical):
-- Your entire reply must be ONE JSON object only. No markdown headings, no "Here are…" preamble, no bullet lists outside JSON.
-- Allowed: raw JSON, or a single ```json … ``` fenced block containing only that JSON.
-- Shape: {"components":[{"name":"string","description":"string","relations":["OtherComponentName"]}]}
-- "relations" is an array of strings; use [] if there are no dependencies.
-- Order "components" most important first.
-"""
-
-_JSON_FENCE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
-
-
-def _stringify_message_content(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and block.get("type") == "text":
-                parts.append(str(block.get("text", "")))
-        return "".join(parts)
-    return str(content)
-
-
-def _decode_top_level_json_object(text: str) -> dict[str, Any]:
-    """Extract the first top-level JSON object from model text (handles fences and leading prose)."""
-    s = text.strip()
-    m = _JSON_FENCE.search(s)
-    if m:
-        s = m.group(1).strip()
-    start = s.find("{")
-    if start < 0:
-        raise ValueError("Model reply contained no JSON object.")
-    data, _ = json.JSONDecoder().raw_decode(s[start:])
-    if not isinstance(data, dict):
-        raise ValueError("Top-level JSON must be an object.")
-    return data
+Reply with ONLY valid JSON in this exact shape (no markdown outside JSON, or one ```json block):
+{"components":[{"name":"...","description":"...","relations":["OtherName"]}]}"""
 
 
 class LeadArchitect:
     def draft_architecture_node(self, state: GlobalSwarmState) -> dict:
         print(f"\n[lead_architect] drafting architecture for: {state['task_requirement']!r}")
 
-        ai_msg = _llm.invoke(
+        msg = _llm.invoke(
             [
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": _SYSTEM},
                 {"role": "user", "content": state["task_requirement"]},
             ]
         )
-        raw = _stringify_message_content(ai_msg.content)
+        raw = assistant_text(msg)
         try:
-            payload = _decode_top_level_json_object(raw)
-            result = ArchitectureDraft.model_validate(payload)
+            data = json_object_from_text(raw)
+            # Some models nest as {"architecture_json": {"components": [...]}}
+            inner = data.get("architecture_json")
+            if "components" not in data and isinstance(inner, dict) and "components" in inner:
+                data = {"components": inner["components"]}
+            draft = ArchitectureDraft.model_validate(data)
         except (json.JSONDecodeError, ValueError) as e:
             raise ValueError(
-                "Lead architect model did not return parseable JSON. "
-                "Ensure the chat API returns JSON or disable prose; first 500 chars:\n"
-                f"{raw[:500]!r}"
+                f"Expected JSON with a 'components' array. Reply started: {raw[:400]!r}"
             ) from e
 
-        architecture_json = {
-            item.name: {"description": item.description, "relations": list(item.relations)}
-            for item in result.components
-        }
-        component_list = [item.name for item in result.components]
-
         return {
-            "architecture_json": architecture_json,
-            "component_list": component_list,
+            "architecture_json": {
+                c.name: {"description": c.description, "relations": list(c.relations)}
+                for c in draft.components
+            },
+            "component_list": [c.name for c in draft.components],
         }
