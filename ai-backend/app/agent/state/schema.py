@@ -11,6 +11,7 @@ class GlobalSwarmState(TypedDict):
     complexity_score: int       # 1–10; drives how many diagrams/docs are made
     diagram_plan: list[str]     # ["overview", "component-api-gateway", "auth-flow", ...]
     doc_plan: list[str]         # ["overview.md", "api-gateway.md", "auth-service.md", ...]
+    deep_dive_notes: str        # empty until deep_dive_node runs
 
 class ArchitectInternalState(TypedDict):
     draft_mermaid: str              # scratchpad during Mermaid generation

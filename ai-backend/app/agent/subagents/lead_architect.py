@@ -45,3 +45,4 @@ class LeadArchitect:
             },
             "component_list": [c.name for c in draft.components],
         }
+
