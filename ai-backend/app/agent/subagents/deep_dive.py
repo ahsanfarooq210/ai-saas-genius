@@ -4,7 +4,6 @@ from app.core.llm import get_chat_llm
 
 _llm = get_chat_llm()
 
-
 _SYSTEM_PROMPT = """\
 You are a senior architect reviewing a complex distributed system.
 Given an architecture, produce:
@@ -16,20 +15,20 @@ Be specific and concise. Output plain text.
 """
 
 
-def deep_dive_node(state: GlobalSwarmState) -> dict:
-    print(f"\n[deep_dive] running — complexity_score={state['complexity_score']}")
+class DeepDive:
+    def deep_dive_node(self, state: GlobalSwarmState) -> dict:
+        print(f"\n[deep_dive] running — complexity_score={state['complexity_score']}")
 
-    prompt = (
-        f"Components: {state['component_list']}\n\n"
-        f"Architecture:\n{state['architecture_json']}"
-    )
+        prompt = (
+            f"Components: {state['component_list']}\n\n"
+            f"Architecture:\n{state['architecture_json']}"
+        )
 
-    response = _llm.invoke(
-        [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ]
-    )
+        response = _llm.invoke(
+            [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ]
+        )
 
-    return {"deep_dive_notes": assistant_text(response)}
-    
+        return {"deep_dive_notes": assistant_text(response)}

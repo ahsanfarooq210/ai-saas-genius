@@ -3,9 +3,9 @@ from langgraph.graph import END, START, StateGraph
 from app.agent.router.supervisor_router import route_after_complexity
 from app.agent.state.schema import GlobalSwarmState
 from app.agent.subagents.comlexity_analyzer import ComplexityAnalyzer
-from app.agent.subagents.deep_dive import deep_dive_node
+from app.agent.subagents.deep_dive import DeepDive
 from app.agent.subagents.lead_architect import LeadArchitect
-from app.agent.subagents.summarize import summarize_node
+from app.agent.subagents.summarize import Summarize
 
 
 class GraphBuilder:
@@ -22,8 +22,8 @@ class GraphBuilder:
         builder.add_node(
             "score_complexity_node", ComplexityAnalyzer().score_complexity_node
         )
-        builder.add_node("deep_dive_node", deep_dive_node)
-        builder.add_node("summarize_node", summarize_node)
+        builder.add_node("deep_dive_node", DeepDive().deep_dive_node)
+        builder.add_node("summarize_node", Summarize().summarize_node)
 
         # ── Fixed edges ────────────────────────────────────────
         builder.add_edge(START, "draft_architecture_node")
