@@ -1,18 +1,41 @@
 from typing import Any
 
-from app.agent.run import GraphBuilder
+from app.agent.run import GraphBuilder, swarm_config
 from app.agent.state.schema import GlobalSwarmState
 
 
+def _empty_swarm_state(task_requirement: str) -> GlobalSwarmState:
+    return {
+        "task_requirement": task_requirement,
+        "architecture_draft": "",
+        "architecture_json": {},
+        "component_list": [],
+        "complexity_score": 0,
+        "diagram_plan": [],
+        "doc_plan": [],
+        "deep_dive_notes": "",
+    }
+
+
 class SwarmGraphService:
-    """Compiles the swarm graph once and runs `invoke` for HTTP callers."""
+    """Compiles the swarm graph once; invoke/resume go through the checkpointer."""
 
     def __init__(self) -> None:
         self._graph = GraphBuilder().build_graph()
 
-    def run(self, task_requirement: str) -> dict[str, Any]:
-        initial: GlobalSwarmState = {
-            "task_requirement": task_requirement,
-            "architecture_draft": "",
+    def run(self, task_requirement: str, thread_id: str) -> dict[str, Any]:
+        return self._graph.invoke(
+            _empty_swarm_state(task_requirement),
+            config=swarm_config(thread_id),
+        )
+
+    def resume(self, thread_id: str) -> dict[str, Any]:
+        return self._graph.invoke(None, config=swarm_config(thread_id))
+
+    def get_checkpoint(self, thread_id: str) -> dict[str, Any]:
+        snapshot = self._graph.get_state(swarm_config(thread_id))
+        return {
+            "thread_id": thread_id,
+            "next": snapshot.next,
+            "values": snapshot.values,
         }
-        return self._graph.invoke(initial)

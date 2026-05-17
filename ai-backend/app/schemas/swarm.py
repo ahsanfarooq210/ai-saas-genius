@@ -5,6 +5,20 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class SwarmRunRequest(BaseModel):
     task_requirement: str = Field(..., min_length=1)
+    thread_id: str = Field(..., min_length=1, description="Checkpoint thread; same id resumes same lineage")
+
+
+class SwarmResumeRequest(BaseModel):
+    thread_id: str = Field(..., min_length=1)
+
+
+class SwarmCheckpointResponse(BaseModel):
+    thread_id: str
+    next: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Next node(s) to run; empty means the graph reached END",
+    )
+    values: dict[str, Any] = Field(default_factory=dict)
 
 
 class SwarmRunResponse(BaseModel):

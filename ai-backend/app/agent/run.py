@@ -1,3 +1,6 @@
+"""Compile the swarm graph (used by SwarmGraphService and the API)."""
+
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.router.supervisor_router import route_after_complexity
@@ -8,14 +11,15 @@ from app.agent.subagents.lead_architect import LeadArchitect
 from app.agent.subagents.summarize import Summarize
 
 
-class GraphBuilder:
-    def __init__(self):
-        self.graph = None
+def swarm_config(thread_id: str) -> dict:
+    """LangGraph checkpointer config — same thread_id resumes the same checkpoint."""
+    return {"configurable": {"thread_id": thread_id}}
 
+
+class GraphBuilder:
     def build_graph(self):
         builder = StateGraph(GlobalSwarmState)
 
-        # ── Nodes ──────────────────────────────────────────────
         builder.add_node(
             "draft_architecture_node", LeadArchitect().draft_architecture_node
         )
@@ -25,13 +29,9 @@ class GraphBuilder:
         builder.add_node("deep_dive_node", DeepDive().deep_dive_node)
         builder.add_node("summarize_node", Summarize().summarize_node)
 
-        # ── Fixed edges ────────────────────────────────────────
         builder.add_edge(START, "draft_architecture_node")
         builder.add_edge("draft_architecture_node", "score_complexity_node")
 
-        # ── Conditional edge ───────────────────────────────────
-        # route_after_complexity() returns "deep_dive" or "summarize"
-        # the dict maps those strings to actual node names
         builder.add_conditional_edges(
             "score_complexity_node",
             route_after_complexity,
@@ -41,9 +41,7 @@ class GraphBuilder:
             },
         )
 
-        # ── deep_dive always flows into summarize ──────────────
         builder.add_edge("deep_dive_node", "summarize_node")
         builder.add_edge("summarize_node", END)
 
-        self.graph = builder.compile()
-        return self.graph
+        return builder.compile(checkpointer=MemorySaver())
