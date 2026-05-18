@@ -19,7 +19,7 @@
 1. Complete phases in order. Do not skip unless marked optional.
 2. After each phase, **stop and run** the graph until the acceptance criteria pass.
 3. Keep a short lab notebook: what you learned, what broke, what LangGraph API fixed it.
-4. When you need final field names or topology details, [`Plan.md`](./Plan.md) in this folder is the canonical reference — but **only pull forward what the current phase allows**.
+4. When you need final field names or topology details, [`plan.md`](../architecture/plan.md) under `docs/architecture/` is the canonical reference — but **only pull forward what the current phase allows**.
 
 ### Repository layout (this codebase)
 
@@ -43,6 +43,7 @@ ai-backend/
     │       └── endpoints/
     │           └── swarm.py       # POST /start, GET /stream/{id}, POST /human-feedback
     └── agent/                       # ← LangGraph swarm package (below)
+        └── docs/                    # planning — see docs/README.md
 ```
 
 **Everything in the progressive plan that is “inside the swarm” lives under **`app/agent/`** — this folder already has `state/`, `subagents/`, `nodes/`, `tools/` (stub). You add **`graphs/`** (compiled `StateGraph` wiring), fill **`state/schema.py`**, and optionally **`storage/`** *or* use **`app/services/`** for `FileStore` — this document pins one consistent choice.**
@@ -136,6 +137,10 @@ Swarm-specific code stays under **`app/agent/`**. App shell (FastAPI root, HTTP 
 
 ```
 app/agent/
+├── docs/                            ← planning & reference (not runtime code)
+│   ├── architecture/plan.md
+│   ├── learning/                    ← incremental + progressive build plans
+│   └── flows/                       ← phase-specific Mermaid flows
 ├── __init__.py                      ← Phase 0 — package marker (needed for python -m app.agent.run)
 ├── llm.py                           ← thin chat client wrapper (Phase 0)
 ├── run.py                           ← Phase 1+ CLI harness: python -m app.agent.run …

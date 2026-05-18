@@ -1,7 +1,7 @@
 # LangGraph Incremental Learning Plan — Architecture Swarm (Step by Step)
 
-> **Purpose**: This document is a **pedagogical build sequence**. You implement the **same ultimate product** as [`Plan.md`](./Plan.md): a multi-agent **swarm** of **subagents** that collaborates to produce **application / system architecture** — for **each architecture component**, **one Mermaid diagram** and **one Markdown doc**, plus an **overview** pair and optional cross-cutting artifacts, then **scalability** and **security** review loops.  
-> **Do not** replace [`Plan.md`](./Plan.md); that file remains the **full target architecture**. This file tells you **what to build in which order** so each step teaches one LangGraph idea at a time.
+> **Purpose**: This document is a **pedagogical build sequence**. You implement the **same ultimate product** as [`Plan.md`](../architecture/plan.md): a multi-agent **swarm** of **subagents** that collaborates to produce **application / system architecture** — for **each architecture component**, **one Mermaid diagram** and **one Markdown doc**, plus an **overview** pair and optional cross-cutting artifacts, then **scalability** and **security** review loops.  
+> **Do not** replace [`Plan.md`](../architecture/plan.md); that file remains the **full target architecture**. This file tells you **what to build in which order** so each step teaches one LangGraph idea at a time.
 
 ---
 
@@ -9,7 +9,7 @@
 
 1. **Complete phases in order** unless a phase explicitly says “optional skip.”
 2. After each phase, **stop and run** your graph manually (REPL, script, or minimal API) until the **acceptance criteria** pass.
-3. When you need the **final field names, topology, or storage layout**, open [`Plan.md`](./Plan.md) — but **only pull forward** what the current phase allows (avoid “building the whole swarm” early).
+3. When you need the **final field names, topology, or storage layout**, open [`Plan.md`](../architecture/plan.md) — but **only pull forward** what the current phase allows (avoid “building the whole swarm” early).
 4. Keep a **lab notebook** (short bullets): what you learned, what broke, and which LangGraph API fixed it.
 
 ---
@@ -43,7 +43,7 @@
 
 **User input**: a natural-language requirement (example: “Design a globally distributed URL shortener” or “Architecture for a multi-tenant B2B SaaS with SSO”).
 
-**System output** (end state, aligned with [`Plan.md`](./Plan.md)):
+**System output** (end state, aligned with [`Plan.md`](../architecture/plan.md)):
 
 | Artifact | Role |
 |----------|------|
@@ -51,7 +51,7 @@
 | **Primary overview Mermaid** | System-level view in `current_architecture_mermaid` (and usually mirrored as a `DiagramEntry` for `overview`). |
 | **Per-component Mermaid files** | **One diagram per architecture component** (boundary, key deps, interfaces for *that* component). |
 | **Per-component Markdown files** | **One doc per architecture component** (responsibilities, APIs, data, failure modes, links to its diagram). |
-| **Cross-cutting docs & diagrams** | On top of the per-component baseline, [`Plan.md` §5.3](Plan.md) adds **extra** items from controlled vocabularies (`auth-flow`, `db-schema`, ADRs, runbooks, etc.) when `complexity_score` is high — see §1.1. |
+| **Cross-cutting docs & diagrams** | On top of the per-component baseline, [`Plan.md` §5.3](../architecture/plan.md) adds **extra** items from controlled vocabularies (`auth-flow`, `db-schema`, ADRs, runbooks, etc.) when `complexity_score` is high — see §1.1. |
 | **Scalability review** | **Scalability Expert** subagent → **APPROVED** or **REJECTED** + concrete fixes. |
 | **Security review** | **Security Auditor** subagent → same contract. |
 | **Supervisor loop** | **Supervisor Router** subagent cycles the swarm until both approve or an **iteration circuit breaker** fires. |
@@ -66,7 +66,7 @@ This is the **direction of travel** for the whole swarm: artifacts are **anchore
 
 | For each component `C` (display name + stable `slug`) | Mermaid | Markdown |
 |------------------------------------------------------|---------|----------|
-| Dedicated artifact | One **component-focused** diagram (context, neighbors, critical paths). | One **`{slug}.md`** (or `{component-name}.md` per [`Plan.md` §5.3](Plan.md) slug rules). |
+| Dedicated artifact | One **component-focused** diagram (context, neighbors, critical paths). | One **`{slug}.md`** (or `{component-name}.md` per [`Plan.md` §5.3](../architecture/plan.md) slug rules). |
 
 **System-wide baseline (almost always)**
 
@@ -77,16 +77,16 @@ This is the **direction of travel** for the whole swarm: artifacts are **anchore
 
 **On top of the baseline (complexity-driven, from Complexity Analyzer)**
 
-[`Plan.md`](./Plan.md) uses `diagram_plan` and `doc_plan` built at runtime. Treat them as:
+[`Plan.md`](../architecture/plan.md) uses `diagram_plan` and `doc_plan` built at runtime. Treat them as:
 
 1. **Required core**: `overview` + **one diagram + one doc per component** (pair by **shared `slug`** so the frontend can group them).
-2. **Optional extras** (when score is higher): e.g. `auth-flow`, `db-schema`, `adr-*.md`, `runbook-*.md` — see [`Plan.md` §5.3](Plan.md).
+2. **Optional extras** (when score is higher): e.g. `auth-flow`, `db-schema`, `adr-*.md`, `runbook-*.md` — see [`Plan.md` §5.3](../architecture/plan.md).
 
 **State / file conventions (learning targets)**
 
 - Each `DiagramEntry` should carry at least: `diagram_type`, `content`, `path`, `iteration`, and preferably **`component_slug`** (or `None` for purely cross-cutting diagrams like `auth-flow`).
 - Each `DocEntry` should carry: `title`, `content`, `path`, and preferably **`component_slug`** (or `None` for `overview.md`, ADRs, runbooks).
-- File store keys stay consistent with [`Plan.md` §8.5](Plan.md), e.g. `diagrams/{thread_id}/iter{n}_{diagram_type}.mmd` and `reports/{thread_id}/{slug}.md` — for component pairs, embed the **same `slug`** in both diagram and doc paths where it helps downloads (e.g. `..._component-api-gateway.mmd` ↔ `api-gateway.md`).
+- File store keys stay consistent with [`Plan.md` §8.5](../architecture/plan.md), e.g. `diagrams/{thread_id}/iter{n}_{diagram_type}.mmd` and `reports/{thread_id}/{slug}.md` — for component pairs, embed the **same `slug`** in both diagram and doc paths where it helps downloads (e.g. `..._component-api-gateway.mmd` ↔ `api-gateway.md`).
 
 **Why this matters for LangGraph**
 
@@ -96,7 +96,7 @@ This is the **direction of travel** for the whole swarm: artifacts are **anchore
 
 In this plan, a **subagent** means: a **named role** with its own system prompt, inputs, and outputs — implemented as **one or more LangGraph nodes** (or as the **worker** inside a `Send`). **Sub-graphs** (`architect_graph`, `doc_generator_graph`) bundle several subagents; the **parent graph** only sees those bundles + reviewer nodes.
 
-| Subagent (role) | Where it lives | Model tier (per [`Plan.md`](./Plan.md)) | Reads (main inputs) | Writes (main outputs) |
+| Subagent (role) | Where it lives | Model tier (per [`Plan.md`](../architecture/plan.md)) | Reads (main inputs) | Writes (main outputs) |
 |-------------------|----------------|----------------------------------------|---------------------|------------------------|
 | **Supervisor Router** | Parent graph — `supervisor_node` | smaller (e.g. mini) | Full `GlobalSwarmState` | Routing only: next branch / `END`; increments `iteration_count` |
 | **Lead Architect** | Architect sub-graph — draft node | capable | `task_requirement`, optional tools | `architecture_json`, initial `component_list`, internal draft fields |
@@ -138,7 +138,7 @@ Sub-graph files (`architect_graph.py`, `doc_generator_graph.py`) **import** from
 
 1. Supervisor sends work to **Architect** sub-graph → Lead Architect + Complexity Analyzer produce **`component_list`** and plans.  
 2. **Diagram Generator** subagents (parallel) produce **one Mermaid each** (including **one per component** + overview + extras).  
-3. Supervisor sends work to **Doc** sub-graph → **Document Generator** subagents produce **one Markdown each** (including **`{slug}.md` per component** + `overview.md` + extras). Docs should **reference** diagrams by title / path (per [`Plan.md` §5.5](Plan.md)).  
+3. Supervisor sends work to **Doc** sub-graph → **Document Generator** subagents produce **one Markdown each** (including **`{slug}.md` per component** + `overview.md` + extras). Docs should **reference** diagrams by title / path (per [`Plan.md` §5.5](../architecture/plan.md)).  
 4. **Scalability Expert** and **Security Auditor** read **everything** and approve or reject.  
 5. Supervisor loops until done or cap.
 
@@ -176,11 +176,11 @@ Sub-graph files (`architect_graph.py`, `doc_generator_graph.py`) **import** from
 ### Learning goals
 
 - Know the **three layers** you will keep separate: **graph topology**, **state schema**, **node implementations** (LLM calls, tools).
-- Agree on **naming** early so later phases match [`Plan.md`](./Plan.md): `GlobalSwarmState`, `task_requirement`, `architecture_json`, `generated_diagrams`, etc.
+- Agree on **naming** early so later phases match [`Plan.md`](../architecture/plan.md): `GlobalSwarmState`, `task_requirement`, `architecture_json`, `generated_diagrams`, etc.
 
 ### Scope (do now)
 
-- Create package layout under `app/agent/` (mirror [`Plan.md` §10](Plan.md) when you add files):
+- Create package layout under `app/agent/` (mirror [`Plan.md` §10](../architecture/plan.md) when you add files):
   - `state.py` (or `schema.py`) — **only** TypedDicts / dataclasses for state.
   - `graphs/` — one file per graph while learning; you can merge later.
   - `nodes/` — optional thin wrappers that call into `subagents/`.
@@ -191,7 +191,7 @@ Sub-graph files (`architect_graph.py`, `doc_generator_graph.py`) **import** from
 ### Deliverables
 
 - Empty modules with docstrings stating which **phase** will fill them.
-- A single `README` comment block in `app/agent/README.md` **optional** — only if your repo already uses agent READMEs; otherwise skip to avoid doc sprawl.
+- See `app/agent/docs/README.md` for where planning docs live; avoid adding more markdown next to Python modules.
 
 ### Acceptance criteria
 
@@ -286,7 +286,7 @@ complexity_score: int        # default 0
 ### Learning goals
 
 - Implement **conditional edges** from one router node (or from `START` to first worker).
-- Encode **priority rules** exactly like [`Plan.md` §4.2](Plan.md) but **shrunk** to your Phase 2 state.
+- Encode **priority rules** exactly like [`Plan.md` §4.2](../architecture/plan.md) but **shrunk** to your Phase 2 state.
 
 ### Use-case slice (tiny supervisor)
 
@@ -309,7 +309,7 @@ deep_dive_notes: str   # default ""
 ### Acceptance criteria
 
 - Routing depends **only** on state fields you set in Phase 2.
-- You can explain why this is a **rehearsal** for the real `supervisor_route` in [`Plan.md`](./Plan.md).
+- You can explain why this is a **rehearsal** for the real `supervisor_route` in [`Plan.md`](../architecture/plan.md).
 
 ### Pitfalls
 
@@ -339,7 +339,7 @@ deep_dive_notes: str   # default ""
 
 ### When to use Postgres
 
-- Defer **`AsyncPostgresSaver`** until Phase 11 unless you enjoy hard-mode debugging — but read [`Plan.md` §8](Plan.md) early so you don’t paint yourself into a schema corner.
+- Defer **`AsyncPostgresSaver`** until Phase 11 unless you enjoy hard-mode debugging — but read [`Plan.md` §8](../architecture/plan.md) early so you don’t paint yourself into a schema corner.
 
 ---
 
@@ -347,12 +347,12 @@ deep_dive_notes: str   # default ""
 
 ### Learning goals
 
-- Build a **child** `StateGraph` that implements a **subset** of [`Plan.md` §4.3 Architect subgraph](Plan.md) **without** `Send`.
+- Build a **child** `StateGraph` that implements a **subset** of [`Plan.md` §4.3 Architect subgraph](../architecture/plan.md) **without** `Send`.
 - **Compile** the child, then **`add_node("architect", child_graph)`** in a parent graph that right now might be trivial (`START → architect → END`).
 
 ### Use-case slice (sequential architect)
 
-Inside the child graph (these map to **Lead Architect** + early analysis; align with [`Plan.md` §5.2](Plan.md) before you add the **Complexity Analyzer** subagent):
+Inside the child graph (these map to **Lead Architect** + early analysis; align with [`Plan.md` §5.2](../architecture/plan.md) before you add the **Complexity Analyzer** subagent):
 
 1. **`draft_mermaid_overview`** — produces `current_architecture_mermaid` (string).
 2. **`lint_mermaid_placeholder`** — for learning, implement as: “if string empty → error” or call a real Mermaid validator later.
@@ -362,7 +362,7 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### State
 
-- Either **lift** fields into the same `GlobalSwarmState` you’ll use later, or use a dedicated `ArchitectState` and **input/output mappers** — but **prefer** aligning with [`Plan.md` §3.1](Plan.md) field names now to avoid rename churn.
+- Either **lift** fields into the same `GlobalSwarmState` you’ll use later, or use a dedicated `ArchitectState` and **input/output mappers** — but **prefer** aligning with [`Plan.md` §3.1](../architecture/plan.md) field names now to avoid rename churn.
 
 ### Deliverables
 
@@ -383,7 +383,7 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### Learning goals
 
-- Add `generated_diagrams: Annotated[list[DiagramEntry], operator.add]` exactly as [`Plan.md` §3.1](Plan.md) describes.
+- Add `generated_diagrams: Annotated[list[DiagramEntry], operator.add]` exactly as [`Plan.md` §3.1](../architecture/plan.md) describes.
 - Prove **why** plain `list` breaks parallel updates (write a **fake** parallel invocation in tests if needed).
 
 ### Use-case slice (still sequential)
@@ -392,7 +392,7 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### Deliverables
 
-- Short comment block in code quoting the warning from [`Plan.md` §7](Plan.md).
+- Short comment block in code quoting the warning from [`Plan.md` §7](../architecture/plan.md).
 
 ### Acceptance criteria
 
@@ -410,12 +410,12 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 - Implement **dynamic fan-out**: `diagram_planner` returns `list[Send(...)]`.
 - Each worker: `diagram_generator` (+ optional `linter` loop **inside** the worker subgraph or node).
-- **Reduce**: a node that asserts all workers finished; optionally filters `"syntax_error"` entries like [`Plan.md` §7](Plan.md).
+- **Reduce**: a node that asserts all workers finished; optionally filters `"syntax_error"` entries like [`Plan.md` §7](../architecture/plan.md).
 
 ### Use-case slice
 
-- **End goal**: `diagram_plan` includes **`overview`** plus **one entry per component** (e.g. `component-api-gateway` or a structured `diagram_type` + `component_slug` in `DiagramWorkerState` — see [`Plan.md` §3.3](Plan.md)).
-- **Learning path**: start with a **hardcoded** `diagram_plan` for 2 fake components + `overview`, then move the planner to the **Complexity Analyzer** subagent so counts follow [`Plan.md` §5.3](Plan.md).
+- **End goal**: `diagram_plan` includes **`overview`** plus **one entry per component** (e.g. `component-api-gateway` or a structured `diagram_type` + `component_slug` in `DiagramWorkerState` — see [`Plan.md` §3.3](../architecture/plan.md)).
+- **Learning path**: start with a **hardcoded** `diagram_plan` for 2 fake components + `overview`, then move the planner to the **Complexity Analyzer** subagent so counts follow [`Plan.md` §5.3](../architecture/plan.md).
 - Each **`Send`** invokes the **Diagram Generator** subagent once; workers append **`DiagramEntry`** with: `diagram_type`, `content`, `path`, `iteration`, and **`component_slug`** when the diagram is component-scoped.
 
 ### Deliverables
@@ -440,11 +440,11 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 ### Learning goals
 
 - Clone the **pattern** from Phase 7 for **Markdown** docs.
-- Introduce `docs_complete: bool` and `generated_docs` reducer list per [`Plan.md`](./Plan.md).
+- Introduce `docs_complete: bool` and `generated_docs` reducer list per [`Plan.md`](../architecture/plan.md).
 
 ### Use-case slice
 
-- **End goal**: `doc_plan` includes **`overview.md`** plus **`{slug}.md` for every component** in `component_list`, then optional ADRs/runbooks per [`Plan.md` §5.3](Plan.md).
+- **End goal**: `doc_plan` includes **`overview.md`** plus **`{slug}.md` for every component** in `component_list`, then optional ADRs/runbooks per [`Plan.md` §5.3](../architecture/plan.md).
 - **Learning path**: hardcode `doc_plan` to mirror the component slugs from Phase 7 before teaching the **Doc Planner** subagent to emit plans from state.
 - Each **`Send`** invokes the **Document Generator** subagent once; workers output one `DocEntry` with **`component_slug`** when the doc is component-scoped; docs should **cite** the matching Mermaid (by path or title).
 
@@ -463,7 +463,7 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### Learning goals
 
-- Implement the **cyclic** parent graph from [`Plan.md` §4.1](Plan.md):
+- Implement the **cyclic** parent graph from [`Plan.md` §4.1](../architecture/plan.md):
   - `supervisor → {architect_subgraph, doc_subgraph, END}` via conditional edges.
 - After **each** subgraph returns, control **must** return to supervisor.
 
@@ -474,11 +474,11 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 ### State
 
 - `iteration_count` increments in supervisor each lap.
-- Hard cap **5** like [`Plan.md`](./Plan.md) (configurable constant).
+- Hard cap **5** like [`Plan.md`](../architecture/plan.md) (configurable constant).
 
 ### Deliverables
 
-- One function `supervisor_route(state) -> str` documented alongside [`Plan.md` §4.2](Plan.md).
+- One function `supervisor_route(state) -> str` documented alongside [`Plan.md` §4.2](../architecture/plan.md).
 
 ### Acceptance criteria
 
@@ -495,8 +495,8 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### Learning goals
 
-- Replace stubs with real **Scalability Expert** and **Security Auditor** subagents (same node slots; swap in full prompts per [`Plan.md` §5.6–5.7](Plan.md)) reading **all** diagrams + docs from state.
-- Encode feedback as strings; use explicit tokens **`APPROVED`** / **`REJECTED`** like [`Plan.md`](./Plan.md).
+- Replace stubs with real **Scalability Expert** and **Security Auditor** subagents (same node slots; swap in full prompts per [`Plan.md` §5.6–5.7](../architecture/plan.md)) reading **all** diagrams + docs from state.
+- Encode feedback as strings; use explicit tokens **`APPROVED`** / **`REJECTED`** like [`Plan.md`](../architecture/plan.md).
 - On `REJECTED`, supervisor routes back to **architect** or **docs** (your choice per product rule) — document the policy.
 
 ### Recommended policy (teaches iteration)
@@ -522,13 +522,13 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### Learning goals
 
-- **Postgres checkpointer** + schema isolation per [`Plan.md` §8](Plan.md).
-- **File store**: local disk dev; keys follow [`Plan.md` §8.5](Plan.md).
+- **Postgres checkpointer** + schema isolation per [`Plan.md` §8](../architecture/plan.md).
+- **File store**: local disk dev; keys follow [`Plan.md` §8.5](../architecture/plan.md).
 - **FastAPI**: expose `POST /thread`, `GET /thread/{id}/state`, streaming SSE for tokens/events (match your frontend contract).
 
 ### Deliverables
 
-- Alembic excludes `langgraph` schema as in [`Plan.md` §8.2](Plan.md).
+- Alembic excludes `langgraph` schema as in [`Plan.md` §8.2](../architecture/plan.md).
 - Session row tracks status + counts.
 
 ### Acceptance criteria
@@ -541,7 +541,7 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### Learning goals
 
-- Close gaps between your learning graph and [`Plan.md`](./Plan.md): internal worker states (`ArchitectInternalState`, `DiagramWorkerState`), Mermaid lint retry caps, structured tracing, error surfaces.
+- Close gaps between your learning graph and [`Plan.md`](../architecture/plan.md): internal worker states (`ArchitectInternalState`, `DiagramWorkerState`), Mermaid lint retry caps, structured tracing, error surfaces.
 
 ### Deliverables
 
@@ -551,7 +551,7 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### Acceptance criteria
 
-- A full run on a non-trivial prompt produces: **overview** + **one Mermaid per component**, **overview.md** + **one Markdown per component** (pairable by `component_slug`), **optional** cross-cutting diagrams/docs per [`Plan.md` §5.3](Plan.md), and **both** reviewer **APPROVED** or a clean **cap** exit with user-visible summary.
+- A full run on a non-trivial prompt produces: **overview** + **one Mermaid per component**, **overview.md** + **one Markdown per component** (pairable by `component_slug`), **optional** cross-cutting diagrams/docs per [`Plan.md` §5.3](../architecture/plan.md), and **both** reviewer **APPROVED** or a clean **cap** exit with user-visible summary.
 
 ---
 
@@ -595,4 +595,4 @@ Adjust to your schedule; **depth beats speed**.
 ---
 
 **End of incremental learning plan.**  
-When in doubt, compare your current graph to the **diagram** in [`Plan.md` §2](Plan.md) — that is still the **canonical target topology**.
+When in doubt, compare your current graph to the **diagram** in [`Plan.md` §2](../architecture/plan.md) — that is still the **canonical target topology**.
