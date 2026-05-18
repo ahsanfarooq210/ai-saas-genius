@@ -33,6 +33,8 @@ class SwarmRunResponse(BaseModel):
         description="Map of component name to {description, relations}",
     )
     component_list: list[str] = Field(default_factory=list)
+    current_architecture_mermaid: str = ""
     complexity_score: int = 0
     diagram_plan: list[str] = Field(default_factory=list)
     doc_plan: list[str] = Field(default_factory=list)
+    deep_dive_notes: str = ""

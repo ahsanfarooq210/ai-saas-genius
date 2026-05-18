@@ -10,6 +10,7 @@ def _empty_swarm_state(task_requirement: str) -> GlobalSwarmState:
         "architecture_draft": "",
         "architecture_json": {},
         "component_list": [],
+        "current_architecture_mermaid": "",
         "complexity_score": 0,
         "diagram_plan": [],
         "doc_plan": [],

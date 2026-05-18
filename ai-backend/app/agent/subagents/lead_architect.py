@@ -1,48 +1,55 @@
-import json
-
 from app.agent.state.schema import GlobalSwarmState
-from app.agent.subagents._schema import ArchitectureDraft
-from app.agent.subagents.llm_reply import assistant_text, json_object_from_text
+from app.agent.subagents._schema import ArchitectureOutput
 from app.core.llm import get_chat_llm
 
 _llm = get_chat_llm()
+_structured_llm = _llm.with_structured_output(ArchitectureOutput)
 
-_SYSTEM = """You are a solutions architect. From the requirement, list 3–12 concrete components
-(API Gateway, Auth Service, MongoDB, etc.) with a one-line description each and which other
-components they depend on (exact names, or []).
+_SYSTEM = """\
+You are a solutions architect. From the requirement, define 3–12 concrete components
+(API Gateway, Auth Service, MongoDB, etc.).
 
-Reply with ONLY valid JSON in this exact shape (no markdown outside JSON, or one ```json block):
-{"components":[{"name":"...","description":"...","relations":["OtherName"]}]}"""
+For each component provide:
+- A short unique name (used as the key in architecture_json)
+- A one-line description
+- relations: exact names of other components it depends on, or []
+
+component_list must list every component name in architecture_json (same names, any order).
+
+current_architecture_mermaid must be a valid Mermaid flowchart (flowchart TD) showing every
+component in component_list as a node and dependency edges between them.
+"""
 
 
 class LeadArchitect:
     def draft_architecture_node(self, state: GlobalSwarmState) -> dict:
-        print(f"\n[lead_architect] drafting architecture for: {state['task_requirement']!r}")
+        print(
+            f"\n[lead_architect] drafting architecture for: {state['task_requirement']!r}"
+        )
 
-        msg = _llm.invoke(
+        result: ArchitectureOutput = _structured_llm.invoke(
             [
                 {"role": "system", "content": _SYSTEM},
                 {"role": "user", "content": state["task_requirement"]},
             ]
         )
-        raw = assistant_text(msg)
-        try:
-            data = json_object_from_text(raw)
-            # Some models nest as {"architecture_json": {"components": [...]}}
-            inner = data.get("architecture_json")
-            if "components" not in data and isinstance(inner, dict) and "components" in inner:
-                data = {"components": inner["components"]}
-            draft = ArchitectureDraft.model_validate(data)
-        except (json.JSONDecodeError, ValueError) as e:
-            raise ValueError(
-                f"Expected JSON with a 'components' array. Reply started: {raw[:400]!r}"
-            ) from e
+
+        print(
+            f"[lead_architect] {len(result.component_list)} components, "
+            f"mermaid={len(result.current_architecture_mermaid)} chars"
+        )
+
+        architecture_json = {
+            name: {
+                "description": detail.description,
+                "relations": list(detail.relations),
+            }
+            for name, detail in result.architecture_json.items()
+        }
+        component_list = list(result.component_list) or list(architecture_json.keys())
 
         return {
-            "architecture_json": {
-                c.name: {"description": c.description, "relations": list(c.relations)}
-                for c in draft.components
-            },
-            "component_list": [c.name for c in draft.components],
+            "architecture_json": architecture_json,
+            "component_list": component_list,
+            "current_architecture_mermaid": result.current_architecture_mermaid,
         }
-
