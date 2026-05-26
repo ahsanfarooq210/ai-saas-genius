@@ -13,9 +13,18 @@ class GlobalSwarmState(TypedDict):
     diagram_plan: list[str]     # ["overview", "component-api-gateway", "auth-flow", ...]
     doc_plan: list[str]         # ["overview.md", "api-gateway.md", "auth-service.md", ...]
     deep_dive_notes: str        # empty until deep_dive_node runs
+    generated_diagrams: Annotated[list["DiagramEntry"], operator.add]
 
 class ArchitectInternalState(TypedDict):
     draft_mermaid: str              # scratchpad during Mermaid generation
     linter_errors: list[str]        # feedback between linter and generator
     internal_loop_count: int        # lint-fix retry counter; hard limit = 3
     current_diagram_type: str       # which diagram is being worked on right now
+
+
+class DiagramEntry(TypedDict):
+    diagram_type: str       # "overview" | "component-api-gateway" | "auth-flow" | ...
+    component_slug: str     # component-scoped slug, or "" for cross-cutting diagrams
+    content: str            # raw Mermaid string
+    path: str               # file key: diagrams/{thread_id}/iter{n}_{diagram_type}.mmd
+    iteration: int          # which swarm pass produced this
