@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.agent.run import GraphBuilder, swarm_config
+from app.agent.run import GraphBuilder, build_checkpoint_payload, swarm_config
 from app.agent.state.schema import GlobalSwarmState
 
 
@@ -15,6 +15,7 @@ def _empty_swarm_state(task_requirement: str) -> GlobalSwarmState:
         "diagram_plan": [],
         "doc_plan": [],
         "deep_dive_notes": "",
+        "generated_diagrams": [],
     }
 
 
@@ -35,8 +36,4 @@ class SwarmGraphService:
 
     def get_checkpoint(self, thread_id: str) -> dict[str, Any]:
         snapshot = self._graph.get_state(swarm_config(thread_id))
-        return {
-            "thread_id": thread_id,
-            "next": snapshot.next,
-            "values": snapshot.values,
-        }
+        return build_checkpoint_payload(thread_id, snapshot)

@@ -1,4 +1,10 @@
-"""Compile the swarm graph (used by SwarmGraphService and the API)."""
+"""Graph entry, thread config, and checkpoint shaping for the API layer."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from app.agent.state.schema import DiagramEntry
 
 from app.agent.graphs.supervisor_graph import supervisor_graph
 
@@ -6,6 +12,44 @@ from app.agent.graphs.supervisor_graph import supervisor_graph
 def swarm_config(thread_id: str) -> dict:
     """LangGraph checkpointer config — same thread_id resumes the same checkpoint."""
     return {"configurable": {"thread_id": thread_id}}
+
+
+def diagram_checkpoint_items(
+    diagrams: list[DiagramEntry] | None,
+) -> list[dict[str, Any]]:
+    """Summarize generated diagrams for GET /state (no full Mermaid bodies)."""
+    items: list[dict[str, Any]] = []
+    for entry in diagrams or []:
+        items.append(
+            {
+                "diagram_type": entry["diagram_type"],
+                "component_slug": entry.get("component_slug") or "",
+                "valid": entry["content"] != "syntax_error",
+                "path": entry.get("path") or "",
+                "iteration": entry.get("iteration", 0),
+            }
+        )
+    return items
+
+
+def build_checkpoint_payload(thread_id: str, snapshot: Any) -> dict[str, Any]:
+    """
+    Shape a LangGraph StateSnapshot into the SwarmCheckpointResponse contract.
+    Used by SwarmGraphService.get_checkpoint — not a CLI printer.
+    """
+    values: dict[str, Any] = dict(snapshot.values or {})
+    diagrams: list[DiagramEntry] = values.get("generated_diagrams") or []
+
+    return {
+        "thread_id": thread_id,
+        "next": snapshot.next or (),
+        "component_list": values.get("component_list") or [],
+        "complexity_score": values.get("complexity_score") or 0,
+        "diagram_plan": values.get("diagram_plan") or [],
+        "generated_diagram_count": len(diagrams),
+        "generated_diagrams": diagram_checkpoint_items(diagrams),
+        "values": values,
+    }
 
 
 class GraphBuilder:

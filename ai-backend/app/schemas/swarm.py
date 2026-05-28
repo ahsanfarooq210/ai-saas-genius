@@ -12,13 +12,39 @@ class SwarmResumeRequest(BaseModel):
     thread_id: str = Field(..., min_length=1)
 
 
+class DiagramCheckpointItem(BaseModel):
+    diagram_type: str
+    component_slug: str = ""
+    valid: bool = Field(
+        description="False when the worker exhausted lint retries (content is syntax_error)",
+    )
+    path: str = ""
+    iteration: int = 0
+
+
 class SwarmCheckpointResponse(BaseModel):
     thread_id: str
     next: tuple[str, ...] = Field(
         default_factory=tuple,
         description="Next node(s) to run; empty means the graph reached END",
     )
-    values: dict[str, Any] = Field(default_factory=dict)
+    component_list: list[str] = Field(default_factory=list)
+    complexity_score: int = 0
+    diagram_plan: list[str] = Field(default_factory=list)
+    generated_diagram_count: int = 0
+    generated_diagrams: list[DiagramCheckpointItem] = Field(default_factory=list)
+    values: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Full checkpoint values including Mermaid content",
+    )
+
+
+class DiagramEntryResponse(BaseModel):
+    diagram_type: str
+    component_slug: str = ""
+    content: str
+    path: str = ""
+    iteration: int = 1
 
 
 class SwarmRunResponse(BaseModel):
@@ -38,3 +64,4 @@ class SwarmRunResponse(BaseModel):
     diagram_plan: list[str] = Field(default_factory=list)
     doc_plan: list[str] = Field(default_factory=list)
     deep_dive_notes: str = ""
+    generated_diagrams: list[DiagramEntryResponse] = Field(default_factory=list)

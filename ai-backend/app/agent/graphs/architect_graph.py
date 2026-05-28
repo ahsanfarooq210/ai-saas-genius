@@ -1,36 +1,53 @@
-"""Architect sub-graph. Phase 5: draft architecture → score complexity."""
+"""Architect sub-graph: draft → complexity → parallel diagrams → reduce."""
 
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.state.schema import GlobalSwarmState
 from app.agent.subagents.comlexity_analyzer import ComplexityAnalyzer
+from app.agent.subagents.diagram_generator_worker import DiagramGenerator
+from app.agent.subagents.diagram_planner import diagram_planner_node
 from app.agent.subagents.lead_architect import LeadArchitect
+from app.agent.subagents.reduce_diagrams import reduce_diagrams_node
+
+# Subagent instances — prompts and LLM calls live in subagents/, not here.
+_lead_architect = LeadArchitect()
+_complexity_analyzer = ComplexityAnalyzer()
+_diagram_generator = DiagramGenerator()
 
 
-class ArchitectGraph:
-    """Compiled independently; parent registers it as a single opaque node."""
+def build_architect_graph():
+    builder = StateGraph(GlobalSwarmState)
 
-    def __init__(self) -> None:
-        self._lead_architect = LeadArchitect()
-        self._complexity_analyzer = ComplexityAnalyzer()
+    builder.add_node(
+        "draft_architecture_node",
+        _lead_architect.draft_architecture_node,
+    )
+    builder.add_node(
+        "score_complexity_node",
+        _complexity_analyzer.score_complexity_node,
+    )
+    builder.add_node(
+        "diagram_generator_node",
+        _diagram_generator.diagram_generator_node,
+    )
+    builder.add_node("reduce_diagrams_node", reduce_diagrams_node)
 
-    def build(self):
-        builder = StateGraph(GlobalSwarmState)
+    builder.add_edge(START, "draft_architecture_node")
+    builder.add_edge("draft_architecture_node", "score_complexity_node")
 
-        builder.add_node(
-            "draft_architecture_node",
-            self._lead_architect.draft_architecture_node,
-        )
-        builder.add_node(
-            "score_complexity_node",
-            self._complexity_analyzer.score_complexity_node,
-        )
+    # score_complexity_node → diagram_planner_node → [Send × N]
+    # diagram_planner_node is not add_node'd — it is the conditional-edge router.
+    # Returning list[Send] fans out to diagram_generator_node in parallel.
+    builder.add_conditional_edges(
+        "score_complexity_node",
+        diagram_planner_node,
+    )
 
-        builder.add_edge(START, "draft_architecture_node")
-        builder.add_edge("draft_architecture_node", "score_complexity_node")
-        builder.add_edge("score_complexity_node", END)
+    # All parallel workers converge here after every Send completes.
+    builder.add_edge("diagram_generator_node", "reduce_diagrams_node")
+    builder.add_edge("reduce_diagrams_node", END)
 
-        return builder.compile()
+    return builder.compile()
 
 
-architect_graph = ArchitectGraph().build()
+architect_graph = build_architect_graph()

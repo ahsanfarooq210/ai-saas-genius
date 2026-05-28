@@ -1,6 +1,9 @@
 # Autonomous System Architecture Swarm — LangGraph Implementation Guide
 
 > **Purpose**: This document is the single source of truth for implementing the LangGraph multi-agent swarm. It covers graph topology, state design, agent responsibilities, tool contracts, storage strategy, and implementation constraints. A coding agent must read this entire document before writing any code.
+>
+> **Important**: This is the target architecture, not a guarantee of current live behavior. Before changing runtime code, compare this plan with the files that actually wire the running system:
+> `app/main.py`, `app/services/swarm_graph_service.py`, `app/agent/run.py`, `app/agent/graphs/`, and `app/agent/state/schema.py`.
 
 ---
 

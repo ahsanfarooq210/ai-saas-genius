@@ -191,7 +191,7 @@ Sub-graph files (`architect_graph.py`, `doc_generator_graph.py`) **import** from
 ### Deliverables
 
 - Empty modules with docstrings stating which **phase** will fill them.
-- See `app/agent/docs/README.md` for where planning docs live; avoid adding more markdown next to Python modules.
+- See `docs/README.md` for where planning and current-state docs live; avoid adding more markdown next to Python modules.
 
 ### Acceptance criteria
 
