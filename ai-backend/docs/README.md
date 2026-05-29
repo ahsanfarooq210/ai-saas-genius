@@ -21,7 +21,7 @@ It is organized so both humans and coding agents can answer two different questi
 | [changes/](changes/) | Change logs for important architectural or behavioral changes. Use this to understand why the code changed and what was introduced. |
 | [architecture/](architecture/) | Long-term target architecture and design constraints. Treat this as roadmap material unless the code matches it. |
 | [learning/](learning/) | Progressive build plans and educational implementation guidance. |
-| [flows/](flows/) | Phase-specific flow diagrams. [phase-6-flow.md](flows/phase-6-flow.md) (reducers), [phase-7-flow.md](flows/phase-7-flow.md) (parallel diagram workers). |
+| [flows/](flows/) | Phase-specific flow diagrams. [swarm-graph-overview.md](flows/swarm-graph-overview.md) (full live graph + fan-out), [phase-6-flow.md](flows/phase-6-flow.md) (reducers), [phase-7-flow.md](flows/phase-7-flow.md) (diagram `Send`), [phase-8-flow.md](flows/phase-8-flow.md) (doc `Send`). |
 
 ## Documentation Rules
 

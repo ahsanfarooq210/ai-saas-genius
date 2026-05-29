@@ -4,7 +4,7 @@ from app.agent.run import GraphBuilder, build_checkpoint_payload, swarm_config
 from app.agent.state.schema import GlobalSwarmState
 
 
-def _empty_swarm_state(task_requirement: str) -> GlobalSwarmState:
+def _empty_swarm_state(task_requirement: str, thread_id: str) -> GlobalSwarmState:
     return {
         "task_requirement": task_requirement,
         "architecture_draft": "",
@@ -16,6 +16,9 @@ def _empty_swarm_state(task_requirement: str) -> GlobalSwarmState:
         "doc_plan": [],
         "deep_dive_notes": "",
         "generated_diagrams": [],
+        "thread_id": thread_id,
+        "generated_docs": [],
+        "docs_complete": False,
     }
 
 
@@ -27,7 +30,7 @@ class SwarmGraphService:
 
     def run(self, task_requirement: str, thread_id: str) -> dict[str, Any]:
         return self._graph.invoke(
-            _empty_swarm_state(task_requirement),
+            _empty_swarm_state(task_requirement, thread_id),
             config=swarm_config(thread_id),
         )
 

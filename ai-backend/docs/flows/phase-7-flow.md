@@ -30,7 +30,7 @@ Wiring: `app/agent/graphs/architect_graph.py`.
 - Returning `list[Send]` triggers parallel `diagram_generator_node` invocations.
 - `reduce_diagrams_node` runs only after **all** `Send` branches complete.
 
-Parent graph (`supervisor_graph.py`) is unchanged: `START → architect_graph → END`.
+Parent graph (`supervisor_graph.py`) is now `START → architect_graph → doc_generator_graph → END` (Phase 8). See [swarm-graph-overview.md](swarm-graph-overview.md).
 
 ---
 
@@ -117,10 +117,10 @@ Phase 6 reducer: [phase-6-flow.md](phase-6-flow.md).
 | Build plan | Current implementation |
 |------------|-------------------------|
 | `output/{thread_id}/*.mmd` on disk | **Paths only** in `DiagramEntry.path`; no file store |
-| `thread_id` / `iteration_count` on `GlobalSwarmState` | Planner uses `state.get("thread_id", "default")`, `state.get("iteration_count", 1)` |
+| `iteration_count` on `GlobalSwarmState` | Planners use `state.get("iteration_count", 1)` until Phase 9 |
 | `write_state_node` after reduce | Not implemented — reduce is last architect node |
 | `ArchitectInternalState` for lint | Worker uses `DiagramWorkerState` + message history |
-| CLI `python -m app.agent.run` | FastAPI `POST /api/v1/swarm/run` |
+| Swarm entry | FastAPI `POST /api/v1/swarm/run` via `SwarmGraphService` |
 
 `current_architecture_mermaid` still comes from **lead architect** at draft. Phase 7 adds **extra** diagrams per `diagram_plan`, not a separate overview-only pipeline.
 
@@ -237,10 +237,9 @@ flowchart TB
 
 ## 13. What comes next
 
-- **Phase 8** — doc sub-graph, `generated_docs` reducer, `component_slug` pairing.
+- **Phase 8** — implemented; see [phase-8-flow.md](phase-8-flow.md).
 - **Phase 9** — supervisor routing, `iteration_count` on shared state.
-- **File store** — persist `DiagramEntry.path`.
-- Pass checkpointer `thread_id` into worker state explicitly.
+- **Diagram disk** — `FileStore.save_diagram` exists; diagram workers do not call it yet.
 
 ---
 

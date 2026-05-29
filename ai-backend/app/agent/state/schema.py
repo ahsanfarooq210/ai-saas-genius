@@ -17,6 +17,9 @@ class GlobalSwarmState(TypedDict):
     doc_plan: list[str]  # ["overview.md", "api-gateway.md", "auth-service.md", ...]
     deep_dive_notes: str  # empty until deep_dive_node runs
     generated_diagrams: Annotated[list["DiagramEntry"], operator.add]
+    thread_id: str  # checkpoint thread; used for artifact paths
+    generated_docs: Annotated[list["DocEntry"], operator.add]
+    docs_complete: bool  # set True when doc sub-graph finishes (Phase 9 supervisor gate)
 
 
 class ArchitectInternalState(TypedDict):
@@ -46,3 +49,20 @@ class DiagramWorkerState(TypedDict):
     internal_loop_count: int  # how many lint-fix attempts so far; hard limit = 3
     thread_id: str  # for building the file path
     iteration: int  # current swarm pass number
+
+
+class DocEntry(TypedDict):
+    title: str
+    component_slug: str  # pairs with DiagramEntry; "" for overview / ADR / runbook
+    content: str
+    path: str  # reports/{thread_id}/{filename}
+
+
+class DocWorkerState(TypedDict):
+    doc_filename: str
+    component_slug: str
+    task_requirement: str
+    architecture_json: dict
+    generated_diagrams: list[DiagramEntry]
+    thread_id: str
+    iteration: int

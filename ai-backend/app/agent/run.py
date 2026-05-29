@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.agent.state.schema import DiagramEntry
+from app.agent.state.schema import DiagramEntry, DocEntry
 
 from app.agent.graphs.supervisor_graph import supervisor_graph
 
@@ -32,13 +32,25 @@ def diagram_checkpoint_items(
     return items
 
 
+def doc_checkpoint_items(docs: list[DocEntry] | None) -> list[dict[str, Any]]:
+    """Summarize generated docs for GET /state (no full Markdown bodies)."""
+    items: list[dict[str, Any]] = []
+    for entry in docs or []:
+        items.append(
+            {
+                "title": entry["title"],
+                "component_slug": entry.get("component_slug") or "",
+                "path": entry.get("path") or "",
+            }
+        )
+    return items
+
+
 def build_checkpoint_payload(thread_id: str, snapshot: Any) -> dict[str, Any]:
-    """
-    Shape a LangGraph StateSnapshot into the SwarmCheckpointResponse contract.
-    Used by SwarmGraphService.get_checkpoint — not a CLI printer.
-    """
+    """Shape a LangGraph StateSnapshot into the SwarmCheckpointResponse contract."""
     values: dict[str, Any] = dict(snapshot.values or {})
     diagrams: list[DiagramEntry] = values.get("generated_diagrams") or []
+    docs: list[DocEntry] = values.get("generated_docs") or []
 
     return {
         "thread_id": thread_id,
@@ -48,6 +60,9 @@ def build_checkpoint_payload(thread_id: str, snapshot: Any) -> dict[str, Any]:
         "diagram_plan": values.get("diagram_plan") or [],
         "generated_diagram_count": len(diagrams),
         "generated_diagrams": diagram_checkpoint_items(diagrams),
+        "generated_doc_count": len(docs),
+        "generated_docs": doc_checkpoint_items(docs),
+        "docs_complete": bool(values.get("docs_complete")),
         "values": values,
     }
 

@@ -16,10 +16,12 @@ Today, the implementation is still an early-phase swarm. It already has:
 - architecture drafting
 - complexity analysis
 - parallel diagram generation via LangGraph `Send` (Phases 6–7)
-- reducer-backed `generated_diagrams` collection and reduce step
+- parallel document generation via LangGraph `Send` (Phase 8)
+- reducer-backed `generated_diagrams` and `generated_docs` collections
 - Mermaid lint-and-retry in diagram workers
+- Markdown docs written to `output/reports/{thread_id}/` via `FileStore`
 
-It does not yet have the full supervisor loop, document generation loop, or reviewer loop wired into the live graph. See [phase-6-flow.md](../flows/phase-6-flow.md) and [phase-7-flow.md](../flows/phase-7-flow.md).
+It does not yet have the full supervisor loop or reviewer loop wired into the live graph. See [swarm-graph-overview.md](../flows/swarm-graph-overview.md), [phase-6-flow.md](../flows/phase-6-flow.md), [phase-7-flow.md](../flows/phase-7-flow.md), and [phase-8-flow.md](../flows/phase-8-flow.md).
 
 ## Live Entry Points
 
@@ -53,10 +55,10 @@ The live graph is simpler than the target architecture plan.
 `app/agent/graphs/supervisor_graph.py`
 
 ```text
-START -> architect_graph -> END
+START -> architect_graph -> doc_generator_graph -> END
 ```
 
-The parent graph currently acts as a thin wrapper around the architect subgraph. It owns the `MemorySaver` checkpointer.
+The parent graph runs the architect sub-graph then the doc sub-graph sequentially. It owns the `MemorySaver` checkpointer. Phase 9 will replace this with a cyclic supervisor and conditional routing.
 
 ### Architect subgraph
 
@@ -76,6 +78,21 @@ The architect subgraph currently performs:
 - `DiagramGenerator.diagram_generator_node` (one invocation per plan entry)
 - `reduce_diagrams_node` (drops `syntax_error` entries; `Overwrite` on `generated_diagrams`)
 
+### Doc generator subgraph
+
+`app/agent/graphs/doc_generator_graph.py`
+
+```text
+START -> [doc_planner: Send × M] -> document_generator_node (parallel)
+     -> reduce_docs_node -> END
+```
+
+The doc subgraph:
+
+- `doc_planner_node` (conditional edge from `START`; returns `list[Send]`)
+- `document_generator_node` (one invocation per `doc_plan` entry; reads `generated_diagrams` for pairing)
+- `reduce_docs_node` (sets `docs_complete: True`)
+
 ## Current State Model
 
 Shared graph state lives in `app/agent/state/schema.py` as `TypedDict` definitions.
@@ -91,13 +108,16 @@ Important live fields:
 - `current_architecture_mermaid`: overview Mermaid diagram
 - `complexity_score`: complexity rating from the analyzer
 - `diagram_plan`: planned diagram identifiers
-- `doc_plan`: planned document identifiers
+- `doc_plan`: planned document identifiers (consumed by doc sub-graph)
 - `deep_dive_notes`: reserved for future deep-dive flow
+- `thread_id`: checkpoint thread; used in artifact paths
 - `generated_diagrams`: reducer-backed list for diagram worker results
+- `generated_docs`: reducer-backed list for document worker results
+- `docs_complete`: `True` after doc sub-graph finishes
 
 ### Reducer-backed fields
 
-`generated_diagrams` is annotated with `operator.add`. This matters because parallel LangGraph workers must merge results instead of overwriting each other.
+`generated_diagrams` and `generated_docs` are annotated with `operator.add`. Parallel LangGraph workers must merge results instead of overwriting each other. See [phase-6-flow.md](../flows/phase-6-flow.md).
 
 ## Current API Surface
 
@@ -117,8 +137,6 @@ Examples of modules not in the active graph:
 - deep dive node
 - summarize node
 - supervisor router logic
-- document generator graph (Phase 8)
-
 Do not assume a module is active just because the file exists.
 
 ## Current Architectural Boundaries

@@ -22,6 +22,12 @@ class DiagramCheckpointItem(BaseModel):
     iteration: int = 0
 
 
+class DocCheckpointItem(BaseModel):
+    title: str
+    component_slug: str = ""
+    path: str = ""
+
+
 class SwarmCheckpointResponse(BaseModel):
     thread_id: str
     next: tuple[str, ...] = Field(
@@ -33,6 +39,9 @@ class SwarmCheckpointResponse(BaseModel):
     diagram_plan: list[str] = Field(default_factory=list)
     generated_diagram_count: int = 0
     generated_diagrams: list[DiagramCheckpointItem] = Field(default_factory=list)
+    generated_doc_count: int = 0
+    generated_docs: list[DocCheckpointItem] = Field(default_factory=list)
+    docs_complete: bool = False
     values: dict[str, Any] = Field(
         default_factory=dict,
         description="Full checkpoint values including Mermaid content",
@@ -45,6 +54,13 @@ class DiagramEntryResponse(BaseModel):
     content: str
     path: str = ""
     iteration: int = 1
+
+
+class DocEntryResponse(BaseModel):
+    title: str
+    component_slug: str = ""
+    content: str
+    path: str = ""
 
 
 class SwarmRunResponse(BaseModel):
@@ -65,3 +81,6 @@ class SwarmRunResponse(BaseModel):
     doc_plan: list[str] = Field(default_factory=list)
     deep_dive_notes: str = ""
     generated_diagrams: list[DiagramEntryResponse] = Field(default_factory=list)
+    thread_id: str = ""
+    generated_docs: list[DocEntryResponse] = Field(default_factory=list)
+    docs_complete: bool = False

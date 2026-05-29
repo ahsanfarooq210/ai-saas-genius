@@ -22,7 +22,7 @@ def diagram_planner_node(state: GlobalSwarmState) -> list[Send]:
                 draft_mermaid="",
                 linter_errors=[],
                 internal_loop_count=0,
-                thread_id=state.get("thread_id", "default"),
+                thread_id=state.get("thread_id") or "default",
                 iteration=state.get("iteration_count", 1),
             ),
         )
