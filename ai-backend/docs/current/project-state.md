@@ -55,10 +55,15 @@ The live graph is simpler than the target architecture plan.
 `app/agent/graphs/supervisor_graph.py`
 
 ```text
-START -> architect_graph -> doc_generator_graph -> END
+START -> supervisor_node -> [conditional] -> architect_graph | doc_generator_graph
+                                        | scalability_node | security_node | END
+architect_graph      -> supervisor_node
+doc_generator_graph  -> supervisor_node
+scalability_node     -> supervisor_node
+security_node        -> supervisor_node
 ```
 
-The parent graph runs the architect sub-graph then the doc sub-graph sequentially. It owns the `MemorySaver` checkpointer. Phase 9 will replace this with a cyclic supervisor and conditional routing.
+The parent graph is cyclic: `supervisor_node` routes via `app/agent/subagents/supervisor_router.py` (no LLM). Stub reviewers always approve until Phase 10. The parent owns the `MemorySaver` checkpointer.
 
 ### Architect subgraph
 
@@ -114,6 +119,10 @@ Important live fields:
 - `generated_diagrams`: reducer-backed list for diagram worker results
 - `generated_docs`: reducer-backed list for document worker results
 - `docs_complete`: `True` after doc sub-graph finishes
+- `iteration_count`: supervisor lap counter (cap 5)
+- `next_agent`: last routing decision written by supervisor
+- `scalability_feedback`: reviewer output; stub returns `STATUS: APPROVED`
+- `security_feedback`: reviewer output; stub returns `STATUS: APPROVED`
 
 ### Reducer-backed fields
 
@@ -136,7 +145,8 @@ Examples of modules not in the active graph:
 
 - deep dive node
 - summarize node
-- supervisor router logic
+- `route_after_complexity` in `app/agent/router/supervisor_router.py` (rehearsal only)
+
 Do not assume a module is active just because the file exists.
 
 ## Current Architectural Boundaries
@@ -176,11 +186,9 @@ Files in `app/agent/subagents/` should contain:
 
 The most important current gaps are:
 
-- no wired supervisor routing loop
-- no wired document generation subgraph
+- reviewer nodes are stubs only (Phase 10 adds real adversarial LLM reviews)
+- no artifact reset on architect re-entry after `REJECTED` (Phase 10)
 - diagram paths are logical keys only (no file store writes yet)
-- `thread_id` for worker paths uses defaults unless added to shared state
-- no reviewer loop for scalability or security
 - some legacy scaffolded auth references still exist in README-level documentation
 
 ## How To Update This Document

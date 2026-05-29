@@ -42,6 +42,10 @@ class SwarmCheckpointResponse(BaseModel):
     generated_doc_count: int = 0
     generated_docs: list[DocCheckpointItem] = Field(default_factory=list)
     docs_complete: bool = False
+    iteration_count: int = 0
+    next_agent: str = ""
+    scalability_feedback: str = ""
+    security_feedback: str = ""
     values: dict[str, Any] = Field(
         default_factory=dict,
         description="Full checkpoint values including Mermaid content",
@@ -84,3 +88,7 @@ class SwarmRunResponse(BaseModel):
     thread_id: str = ""
     generated_docs: list[DocEntryResponse] = Field(default_factory=list)
     docs_complete: bool = False
+    iteration_count: int = 0
+    next_agent: str = ""
+    scalability_feedback: str = ""
+    security_feedback: str = ""

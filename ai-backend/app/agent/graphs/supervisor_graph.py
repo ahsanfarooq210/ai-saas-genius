@@ -1,4 +1,4 @@
-"""Parent topology. Phase 8: architect then docs; Phase 9 adds cyclic supervisor routing."""
+"""Parent topology. Phase 9: cyclic supervisor with conditional routing."""
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -6,6 +6,9 @@ from langgraph.graph import END, START, StateGraph
 from app.agent.graphs.architect_graph import architect_graph
 from app.agent.graphs.doc_generator_graph import doc_generator_graph
 from app.agent.state.schema import GlobalSwarmState
+from app.agent.subagents.scalability_expert import scalability_node
+from app.agent.subagents.security_auditor import security_node
+from app.agent.subagents.supervisor_router import supervisor_node, supervisor_route
 
 
 class SupervisorGraph:
@@ -14,12 +17,30 @@ class SupervisorGraph:
     def build(self):
         builder = StateGraph(GlobalSwarmState)
 
+        builder.add_node("supervisor_node", supervisor_node)
         builder.add_node("architect_graph", architect_graph)
         builder.add_node("doc_generator_graph", doc_generator_graph)
+        builder.add_node("scalability_node", scalability_node)
+        builder.add_node("security_node", security_node)
 
-        builder.add_edge(START, "architect_graph")
-        builder.add_edge("architect_graph", "doc_generator_graph")
-        builder.add_edge("doc_generator_graph", END)
+        builder.add_edge(START, "supervisor_node")
+
+        builder.add_conditional_edges(
+            "supervisor_node",
+            supervisor_route,
+            {
+                "architect_graph": "architect_graph",
+                "doc_generator_graph": "doc_generator_graph",
+                "scalability_node": "scalability_node",
+                "security_node": "security_node",
+                "END": END,
+            },
+        )
+
+        builder.add_edge("architect_graph", "supervisor_node")
+        builder.add_edge("doc_generator_graph", "supervisor_node")
+        builder.add_edge("scalability_node", "supervisor_node")
+        builder.add_edge("security_node", "supervisor_node")
 
         return builder.compile(checkpointer=MemorySaver())
 

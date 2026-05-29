@@ -37,6 +37,10 @@ def test_build_checkpoint_payload_matches_api_schema() -> None:
             "component_list": ["API Gateway"],
             "complexity_score": 4,
             "diagram_plan": ["overview", "auth-flow"],
+            "iteration_count": 3,
+            "next_agent": "scalability_node",
+            "scalability_feedback": "STATUS: APPROVED",
+            "security_feedback": "",
             "generated_diagrams": [
                 {
                     "diagram_type": "overview",
@@ -57,3 +61,7 @@ def test_build_checkpoint_payload_matches_api_schema() -> None:
     assert response.generated_diagrams[0].diagram_type == "overview"
     assert response.generated_diagrams[0].valid is True
     assert response.values["component_list"] == ["API Gateway"]
+    assert response.iteration_count == 3
+    assert response.next_agent == "scalability_node"
+    assert response.scalability_feedback == "STATUS: APPROVED"
+    assert response.security_feedback == ""

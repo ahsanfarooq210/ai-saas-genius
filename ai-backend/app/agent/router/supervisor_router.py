@@ -1,5 +1,7 @@
 from app.agent.state.schema import GlobalSwarmState
 
+# Parent supervisor routing lives in app.agent.subagents.supervisor_router.
+
 
 def route_after_complexity(state: GlobalSwarmState) -> str:
     """

@@ -19,6 +19,10 @@ def _empty_swarm_state(task_requirement: str, thread_id: str) -> GlobalSwarmStat
         "thread_id": thread_id,
         "generated_docs": [],
         "docs_complete": False,
+        "iteration_count": 0,
+        "next_agent": "",
+        "scalability_feedback": "",
+        "security_feedback": "",
     }
 
 

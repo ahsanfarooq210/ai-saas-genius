@@ -63,6 +63,10 @@ def build_checkpoint_payload(thread_id: str, snapshot: Any) -> dict[str, Any]:
         "generated_doc_count": len(docs),
         "generated_docs": doc_checkpoint_items(docs),
         "docs_complete": bool(values.get("docs_complete")),
+        "iteration_count": int(values.get("iteration_count") or 0),
+        "next_agent": values.get("next_agent") or "",
+        "scalability_feedback": values.get("scalability_feedback") or "",
+        "security_feedback": values.get("security_feedback") or "",
         "values": values,
     }
 

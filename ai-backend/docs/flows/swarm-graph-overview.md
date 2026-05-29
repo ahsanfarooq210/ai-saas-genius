@@ -57,13 +57,15 @@ flowchart TB
   end
 ```
 
-Parent wiring (Phase 8 — linear; Phase 9 will add cyclic supervisor routing):
+Parent wiring (Phase 9 — cyclic supervisor):
 
-```20:22:app/agent/graphs/supervisor_graph.py
-        builder.add_edge(START, "architect_graph")
-        builder.add_edge("architect_graph", "doc_generator_graph")
-        builder.add_edge("doc_generator_graph", END)
+```text
+START → supervisor_node → [conditional] → architect_graph | doc_generator_graph
+                                        | scalability_node | security_node | END
+(each worker) → supervisor_node
 ```
+
+See [`supervisor_graph.py`](../../app/agent/graphs/supervisor_graph.py) and [`supervisor_router.py`](../../app/agent/subagents/supervisor_router.py).
 
 ---
 
@@ -355,19 +357,13 @@ flowchart TB
 |--------|--------|
 | [`deep_dive.py`](../../app/agent/subagents/deep_dive.py) | Not in any graph |
 | [`summarize.py`](../../app/agent/subagents/summarize.py) | Not in any graph |
-| [`supervisor_router.py`](../../app/agent/router/supervisor_router.py) | Phase 9 routing rehearsal |
+| [`router/supervisor_router.py`](../../app/agent/router/supervisor_router.py) | `route_after_complexity` rehearsal only (unwired) |
 
 ---
 
-## 10. Phase 9 preview
+## 10. Phase 9 supervisor (implemented)
 
-Target parent shape (not implemented):
-
-```text
-START → supervisor_node → [conditional] → architect_graph | doc_generator_graph | reviewers → END
-```
-
-Uses `docs_complete`, `iteration_count`, and reviewer feedback fields — see [langchain-langgraph-build-plan.md](../learning/langchain-langgraph-build-plan.md).
+Parent graph uses `docs_complete`, `iteration_count`, `scalability_feedback`, and `security_feedback` for routing. Stubs in `scalability_expert.py` and `security_auditor.py` return `STATUS: APPROVED`. See [langchain-langgraph-build-plan.md](../learning/langchain-langgraph-build-plan.md).
 
 ---
 
@@ -378,4 +374,5 @@ Uses `docs_complete`, `iteration_count`, and reviewer feedback fields — see [l
 | Reducer on `generated_docs` | `tests/test_reducer_phase8.py` |
 | Reducer on `generated_diagrams` | `tests/test_reducer_phase6.py` |
 | Checkpoint payload | `tests/test_checkpoint_payload.py` |
+| Supervisor routing | `tests/test_supervisor_routing_phase9.py` |
 | Full run | `POST /api/v1/swarm/run` with LLM env configured |
