@@ -12,7 +12,9 @@ def supervisor_node(state: GlobalSwarmState) -> dict:
     """
     iteration = state.get("iteration_count", 0) + 1
 
-    if iteration >= MAX_ITERATIONS:
+    # Allow the MAX_ITERATIONS-th supervisor pass to route normally.
+    # Force END only after the run has already consumed that many passes.
+    if iteration > MAX_ITERATIONS:
         next_agent = "END"
     else:
         next_agent = _route(state)

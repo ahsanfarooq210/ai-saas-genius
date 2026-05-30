@@ -92,12 +92,33 @@ def test_route_security_rejected_to_architect() -> None:
     assert _route(state) == "architect_graph"
 
 
-def test_supervisor_node_circuit_breaker_at_cap() -> None:
+def test_supervisor_node_allows_maxth_pass_to_route() -> None:
     state = _base_state(iteration_count=MAX_ITERATIONS - 1)
     update = supervisor_node(state)
 
     assert update["iteration_count"] == MAX_ITERATIONS
+    assert update["next_agent"] == "architect_graph"
+
+
+def test_supervisor_node_circuit_breaker_after_cap() -> None:
+    state = _base_state(iteration_count=MAX_ITERATIONS)
+    update = supervisor_node(state)
+
+    assert update["iteration_count"] == MAX_ITERATIONS + 1
     assert update["next_agent"] == "END"
+
+
+def test_supervisor_node_routes_doc_regeneration_on_maxth_pass() -> None:
+    state = _base_state(
+        iteration_count=MAX_ITERATIONS - 1,
+        component_list=["Token Vault"],
+        architecture_json={"Token Vault": {"description": "x", "relations": []}},
+        docs_complete=False,
+    )
+    update = supervisor_node(state)
+
+    assert update["iteration_count"] == MAX_ITERATIONS
+    assert update["next_agent"] == "doc_generator_graph"
 
 
 def test_supervisor_node_increments_and_routes() -> None:

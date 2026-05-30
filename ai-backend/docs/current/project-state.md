@@ -47,7 +47,7 @@ START → supervisor_node → [conditional] → architect_graph | doc_generator_
 
 - Cyclic supervisor with `MemorySaver` checkpointer
 - Routing: `app/agent/subagents/supervisor_router.py` (no LLM)
-- `MAX_ITERATIONS = 5` circuit breaker in `supervisor_node`
+- `MAX_ITERATIONS = 5` in `supervisor_node`; pass 6 forces `END`, so pass 5 can still route pending doc regeneration
 
 ### Architect subgraph (`architect_graph.py`)
 

@@ -95,7 +95,7 @@ START → supervisor_node → [conditional] → architect_graph | doc_generator_
 | 6 | `security_feedback` empty | `security_node` |
 | 7 | else | `END` |
 
-**Iteration cap:** `supervisor_node` increments `iteration_count` each lap. When `iteration_count >= 5` (`MAX_ITERATIONS`), it routes to `END` regardless of pending work.
+**Iteration cap:** `supervisor_node` increments `iteration_count` each lap. The **fifth** supervisor pass still routes normally; the circuit breaker forces `END` only once `iteration_count > 5` (`MAX_ITERATIONS`). This lets a rejection-driven architect rerun reach the doc phase instead of ending with cleared docs.
 
 **Checkpointer:** `MemorySaver` on the parent graph. Config: `{"configurable": {"thread_id": "<id>"}}` via [`swarm_config()`](../../app/agent/run.py).
 

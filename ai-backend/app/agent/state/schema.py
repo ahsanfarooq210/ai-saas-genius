@@ -20,7 +20,7 @@ class GlobalSwarmState(TypedDict):
     thread_id: str  # checkpoint thread; used for artifact paths
     generated_docs: list["DocEntry"]
     docs_complete: bool  # set True when doc sub-graph finishes (Phase 9 supervisor gate)
-    iteration_count: int  # supervisor increments every lap; hard limit = 5
+    iteration_count: int  # supervisor increments every lap; pass 6 forces END when MAX_ITERATIONS = 5
     next_agent: str  # set by supervisor for visibility; routing uses return value
     scalability_feedback: str  # "" until reviewed; stub sets "STATUS: APPROVED"
     security_feedback: str  # "" until reviewed; stub sets "STATUS: APPROVED"
