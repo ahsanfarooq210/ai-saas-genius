@@ -28,6 +28,19 @@ class DocCheckpointItem(BaseModel):
     path: str = ""
 
 
+class DebateLogCheckpointItem(BaseModel):
+    agent: str
+    status: str
+    iteration: int = 0
+
+
+class DebateLogEntryResponse(BaseModel):
+    agent: str
+    feedback: str
+    status: str
+    iteration: int = 0
+
+
 class SwarmCheckpointResponse(BaseModel):
     thread_id: str
     next: tuple[str, ...] = Field(
@@ -46,6 +59,8 @@ class SwarmCheckpointResponse(BaseModel):
     next_agent: str = ""
     scalability_feedback: str = ""
     security_feedback: str = ""
+    debate_log_count: int = 0
+    debate_logs: list[DebateLogCheckpointItem] = Field(default_factory=list)
     values: dict[str, Any] = Field(
         default_factory=dict,
         description="Full checkpoint values including Mermaid content",
@@ -92,3 +107,4 @@ class SwarmRunResponse(BaseModel):
     next_agent: str = ""
     scalability_feedback: str = ""
     security_feedback: str = ""
+    debate_logs: list[DebateLogEntryResponse] = Field(default_factory=list)

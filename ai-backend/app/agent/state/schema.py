@@ -24,6 +24,14 @@ class GlobalSwarmState(TypedDict):
     next_agent: str  # set by supervisor for visibility; routing uses return value
     scalability_feedback: str  # "" until reviewed; stub sets "STATUS: APPROVED"
     security_feedback: str  # "" until reviewed; stub sets "STATUS: APPROVED"
+    debate_logs: Annotated[list["DebateLogEntry"], operator.add]
+
+
+class DebateLogEntry(TypedDict):
+    agent: str  # "scalability" | "security"
+    feedback: str  # full Markdown critique
+    status: str  # "APPROVED" | "REJECTED"
+    iteration: int  # supervisor iteration when review ran
 
 
 class ArchitectInternalState(TypedDict):

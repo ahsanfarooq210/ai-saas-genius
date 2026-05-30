@@ -21,16 +21,34 @@ component in component_list as a node and dependency edges between them.
 """
 
 
+def _rejection_context(state: GlobalSwarmState) -> str:
+    parts: list[str] = []
+    scalability = state.get("scalability_feedback", "")
+    security = state.get("security_feedback", "")
+    if scalability and "REJECTED" in scalability:
+        parts.append(f"## Scalability review (must address)\n{scalability}")
+    if security and "REJECTED" in security:
+        parts.append(f"## Security review (must address)\n{security}")
+    if not parts:
+        return ""
+    return (
+        "\n\n---\nPrior reviewer rejections — revise the architecture to fix these:\n\n"
+        + "\n\n".join(parts)
+    )
+
+
 class LeadArchitect:
     def draft_architecture_node(self, state: GlobalSwarmState) -> dict:
         print(
             f"\n[lead_architect] drafting architecture for: {state['task_requirement']!r}"
         )
 
+        user_content = state["task_requirement"] + _rejection_context(state)
+
         result: ArchitectureOutput = _structured_llm.invoke(
             [
                 {"role": "system", "content": _SYSTEM},
-                {"role": "user", "content": state["task_requirement"]},
+                {"role": "user", "content": user_content},
             ]
         )
 
@@ -48,8 +66,13 @@ class LeadArchitect:
         }
         component_list = list(result.component_list) or list(architecture_json.keys())
 
-        return {
+        update: dict = {
             "architecture_json": architecture_json,
             "component_list": component_list,
             "current_architecture_mermaid": result.current_architecture_mermaid,
         }
+        if _rejection_context(state):
+            update["scalability_feedback"] = ""
+            update["security_feedback"] = ""
+            update["docs_complete"] = False
+        return update

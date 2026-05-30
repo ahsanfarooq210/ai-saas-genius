@@ -23,6 +23,7 @@ def _empty_swarm_state(task_requirement: str, thread_id: str) -> GlobalSwarmStat
         "next_agent": "",
         "scalability_feedback": "",
         "security_feedback": "",
+        "debate_logs": [],
     }
 
 

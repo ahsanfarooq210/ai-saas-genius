@@ -1,3 +1,5 @@
+from langgraph.types import Overwrite
+
 from app.agent.state.schema import GlobalSwarmState
 
 
@@ -13,5 +15,7 @@ def reduce_docs_node(state: GlobalSwarmState) -> dict:
         slug = doc["component_slug"] or "(cross-cutting)"
         print(f"  ✓ {doc['title']:<45} slug={slug}")
 
-    # Do not re-emit generated_docs — operator.add would duplicate worker entries.
-    return {"docs_complete": True}
+    return {
+        "generated_docs": Overwrite(all_docs),
+        "docs_complete": True,
+    }

@@ -50,6 +50,14 @@ def test_build_checkpoint_payload_matches_api_schema() -> None:
                     "iteration": 1,
                 }
             ],
+            "debate_logs": [
+                {
+                    "agent": "scalability",
+                    "feedback": "All good.\n\nSTATUS: APPROVED",
+                    "status": "APPROVED",
+                    "iteration": 3,
+                }
+            ],
         },
     )
 
@@ -65,3 +73,8 @@ def test_build_checkpoint_payload_matches_api_schema() -> None:
     assert response.next_agent == "scalability_node"
     assert response.scalability_feedback == "STATUS: APPROVED"
     assert response.security_feedback == ""
+    assert response.debate_log_count == 1
+    assert response.debate_logs[0].agent == "scalability"
+    assert response.debate_logs[0].status == "APPROVED"
+    assert response.debate_logs[0].iteration == 3
+    assert "feedback" not in response.debate_logs[0].model_dump()

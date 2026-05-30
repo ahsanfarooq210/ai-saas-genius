@@ -121,12 +121,13 @@ Important live fields:
 - `docs_complete`: `True` after doc sub-graph finishes
 - `iteration_count`: supervisor lap counter (cap 5)
 - `next_agent`: last routing decision written by supervisor
-- `scalability_feedback`: reviewer output; stub returns `STATUS: APPROVED`
-- `security_feedback`: reviewer output; stub returns `STATUS: APPROVED`
+- `scalability_feedback`: full Markdown scalability critique ending with `STATUS: APPROVED` or `STATUS: REJECTED`
+- `security_feedback`: full Markdown security critique ending with `STATUS: APPROVED` or `STATUS: REJECTED`
+- `debate_logs`: in-memory audit trail (`DebateLogEntry` per reviewer pass)
 
 ### Reducer-backed fields
 
-`generated_diagrams` and `generated_docs` are annotated with `operator.add`. Parallel LangGraph workers must merge results instead of overwriting each other. See [phase-6-flow.md](../flows/phase-6-flow.md).
+`generated_diagrams`, `generated_docs`, and `debate_logs` are annotated with `operator.add`. Parallel LangGraph workers must merge results instead of overwriting each other; reduce nodes use `Overwrite` where a full list replacement is required. See [phase-6-flow.md](../flows/phase-6-flow.md).
 
 ## Current API Surface
 
@@ -186,8 +187,7 @@ Files in `app/agent/subagents/` should contain:
 
 The most important current gaps are:
 
-- reviewer nodes are stubs only (Phase 10 adds real adversarial LLM reviews)
-- no artifact reset on architect re-entry after `REJECTED` (Phase 10)
+- `debate_logs` are in-memory only (Phase 11 persists to Postgres)
 - diagram paths are logical keys only (no file store writes yet)
 - some legacy scaffolded auth references still exist in README-level documentation
 

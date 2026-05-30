@@ -4,132 +4,146 @@
 Accepted
 
 ## Context
-The social media automation platform must authenticate end-users, maintain secure sessions, and manage OAuth 2.0 credentials for multiple third-party platforms (e.g., Instagram, Twitter/X, LinkedIn, TikTok). The backend is built on Node.js and Express, with MongoDB as the primary database. Background jobs managed by Agenda.js will publish content on behalf of users, requiring secure, automated access to stored OAuth tokens without user interaction. We need an architecture that isolates credential storage, supports horizontal scaling, and minimizes the blast radius of a security breach.
+The social media automation platform must authenticate end-users for web and mobile clients while also obtaining and maintaining OAuth 2.0 credentials for five external social platforms: Instagram, Twitter/X, Facebook, TikTok, and LinkedIn. The system needs to:
+- Securely manage user sessions across stateless Node.js/Express API services.
+- Protect long-lived third-party platform tokens at rest and in transit.
+- Allow background workers (`agenda_worker`, `publisher_service`) to publish content on behalf of users without an interactive user login.
+- Support account disconnection and token revocation initiated by either the user or the external platform.
+
+A monolithic auth approach would couple password hashing, JWT lifecycle, OAuth handshakes, and encrypted secret storage into a single deployable unit, increasing the blast radius of security changes. We therefore decided to decompose these concerns into dedicated components.
 
 ## Decision
-We will implement a two-tier authentication architecture:
+We will adopt a **decomposed, token-centric authentication architecture** with the following boundaries:
 
-1. **User Session Management**: The `auth_service` will manage user identity using email/password registration and JSON Web Tokens (JWT). Short-lived access tokens and long-lived refresh tokens provide stateless session management.
-2. **Platform Credential Vault**: A dedicated `token_store` component will encrypt and store all third-party OAuth access and refresh tokens. It operates as a security boundary; no other service accesses MongoDB credential documents directly.
+1. **API Gateway** enforces JWT validation on all inbound HTTP requests using RS256 asymmetric signing. It rejects unauthorized traffic before it reaches domain services.
+2. **Auth Service** owns user identity verification (bcrypt password hashes), JWT issuance/refresh, and OAuth 2.0 authorization code flow initiation for social platforms.
+3. **Token Store** is a dedicated encryption layer responsible only for persisting OAuth access tokens, refresh tokens, and expiry metadata in MongoDB. It exposes an internal API for encrypted write/read operations and abstracts key management.
+4. **User Service** owns the `PlatformConnection` domain model (account IDs, usernames, connection status, posting preferences) but delegates credential storage to the Token Store via the Auth Service.
+5. **Platform API Clients** retrieve decrypted OAuth tokens from the Token Store at runtime and inject them into outbound requests to Instagram, Twitter/X, Facebook, TikTok, and LinkedIn APIs.
 
-The `api_gateway` validates JWTs locally using an RS256 public key and routes authenticated requests. Background services (`platform_publisher`, `job_scheduler`) interact with `token_store` via an internal API authenticated by service API keys and mTLS.
+## Responsibilities
 
----
+### API Gateway
+- Validate `Authorization: Bearer <JWT>` headers on every request.
+- Terminate TLS and enforce CORS policies for web/mobile origins.
+- Route authenticated requests to downstream services after appending `X-User-ID` and `X-Token-Expiry` headers.
+- Apply rate limiting per IP and per user ID to mitigate brute-force and credential-stuffing attacks.
 
 ### Auth Service
-
-#### Responsibilities
-- User registration and login with bcrypt-hashed passwords.
-- JWT issuance (access tokens, 15-minute TTL) and refresh token rotation (7-day TTL, single-use).
-- OAuth 2.0 authorization flow initiation and callback handling for connected social platforms.
-- Refresh token revocation on logout or detected reuse.
-- Public key distribution for JWT signature verification by downstream services.
-
-#### APIs / Interfaces
-| Endpoint | Method | Description |
-|---|---|---|
-| `/auth/register` | `POST` | Creates a user account. Body: `{ email, password }`. Returns user ID. |
-| `/auth/login` | `POST` | Authenticates user. Body: `{ email, password }`. Returns `{ accessToken, refreshToken }`. |
-| `/auth/refresh` | `POST` | Exchanges valid refresh token for a new access/refresh pair. Body: `{ refreshToken }`. |
-| `/auth/logout` | `POST` | Revokes the provided refresh token family. |
-| `/auth/oauth/:platform/initiate` | `GET` | Returns platform-specific OAuth URL with PKCE/state parameters. |
-| `/auth/oauth/:platform/callback` | `POST` | Exchanges authorization code for platform tokens and delegates storage to `token_store`. |
-| `/auth/me` | `GET` | Returns current user profile. Requires valid access token. |
-
-Internal interface:
-- `generateTokenPair(userId: string): { accessToken, refreshToken }`
-- `verifyPassword(plain: string, hash: string): boolean`
-- `revokeTokenFamily(familyId: string): Promise<void>`
-
-#### Data Ownership
-- **`users` collection**: `_id`, `email` (unique, indexed), `passwordHash`, `createdAt`, `updatedAt`.
-- **`refresh_tokens` collection**: `jti` (JWT ID, unique, indexed), `userId`, `familyId` (token family for reuse detection), `hashedToken`, `expiresAt`, `revokedAt`, `createdAt`.
-
----
+- Register new users with bcrypt-hashed passwords stored in MongoDB.
+- Authenticate users and issue short-lived access JWTs (15 minutes) and long-lived refresh JWTs (7 days) signed with RS256.
+- Initiate platform OAuth flows: generate PKCE `code_verifier` and `state` parameters, redirect users to platform authorization endpoints, and handle callback routes (`/auth/callback/:platform`).
+- Upon successful OAuth callback, extract platform tokens and pass them to the Token Store for encryption; then notify User Service to create a `PlatformConnection` record.
+- Provide token refresh endpoints and logout/token revocation endpoints that invalidate refresh tokens in MongoDB.
 
 ### Token Store
+- Accept plaintext OAuth tokens from Auth Service or Platform API Clients over an internal mTLS channel.
+- Encrypt tokens using AES-256-GCM with per-connection data encryption keys (DEKs) managed by an internal key-derivation strategy; store ciphertext in MongoDB.
+- Decrypt and return tokens on read, enforcing that only the `platform_api_clients` module and `auth_service` may invoke read operations.
+- Handle token refresh orchestration for background jobs: when a platform access token is near expiry, the Token Store may use its stored refresh token to obtain a new access token before returning it to the caller.
 
-#### Responsibilities
-- Encrypt OAuth access tokens, refresh tokens, and metadata at rest using AES-256-GCM.
-- Decrypt and vend plaintext tokens to authorized internal services (`platform_publisher`) for API calls.
-- Enforce per-user, per-platform token uniqueness constraints.
-- Support token rotation when `platform_publisher` receives updated credentials from a platform.
+### User Service
+- Maintain the `User` profile and `PlatformConnection` documents in MongoDB, including platform-specific account handles, follower counts, and connection health status.
+- Invoke Auth Service to validate session state when processing sensitive preference updates (e.g., changing posting frequency or target platforms).
+- Mark connections as `disconnected` or `requires_reauth` when notified by Auth Service or Publisher Service of OAuth revocation.
 
-#### APIs / Interfaces
-Internal gRPC/HTTP interface (service-to-service only):
-| Method | Input | Output |
+### Platform API Clients
+- Abstract platform-specific SDKs and HTTP semantics for Instagram Graph API, Twitter/X API v2, Facebook Graph API, TikTok Research/Content API, and LinkedIn REST API.
+- Before each outbound request, fetch the current decrypted OAuth token from the Token Store using the `connectionId`.
+- Normalize platform-specific error codes (e.g., Twitter 401, Instagram 190) into internal `PlatformAuthError` events that trigger re-authentication workflows.
+
+## APIs and Interfaces
+
+### External HTTP API (Auth Service)
+| Endpoint | Method | Description |
 |---|---|---|
-| `storeToken` | `{ userId, platform, accessToken, refreshToken, scopes, expiresAt }` | `credentialId` |
-| `getToken` | `{ userId, platform }` | `{ accessToken, refreshToken, scopes, expiresAt }` (decrypted) |
-| `rotateToken` | `{ userId, platform, newAccessToken, newRefreshToken, newExpiresAt }` | `success` |
-| `revokeToken` | `{ userId, platform }` | `success` |
+| `/auth/register` | POST | Create user account; returns 201 with empty body. |
+| `/auth/login` | POST | Validate credentials; returns `{ accessToken, refreshToken }`. |
+| `/auth/refresh` | POST | Accepts `refreshToken`; returns new access/refresh pair and invalidates old refresh token (rotation). |
+| `/auth/logout` | POST | Accepts `refreshToken`; blacklists it in MongoDB `revoked_tokens` collection. |
+| `/auth/connect/:platform` | POST | Initiates OAuth flow; returns 302 redirect to platform authorize URL with `state` query param. |
+| `/auth/callback/:platform` | GET | Validates `state` and `code`; exchanges code for platform tokens; stores via Token Store; redirects to client success URI. |
+| `/auth/connections/:connectionId` | DELETE | Revokes platform tokens via platform API and deletes encrypted store entry. |
 
-Access is restricted by network policies and a static service API key header plus mTLS.
+### Internal Service Interfaces
+**Auth Service → Token Store**
+```javascript
+// gRPC or internal HTTP (mTLS)
+message StoreOAuthTokens {
+  string userId = 1;
+  string platform = 2;
+  string connectionId = 3;
+  string accessToken = 4;
+  string refreshToken = 5;
+  int64 expiresAt = 6;
+}
+rpc StoreTokens(StoreOAuthTokens) returns (StoreResult);
 
-#### Data Ownership
-- **`platform_credentials` collection**: `userId`, `platform`, `encryptedAccessToken` (ciphertext + IV + auth tag), `encryptedRefreshToken`, `scopes` (string array), `expiresAt`, `createdAt`, `updatedAt`.
-- Compound unique index on `(userId, platform)`.
+message RetrieveRequest {
+  string connectionId = 1;
+}
+rpc RetrieveTokens(RetrieveRequest) returns (DecryptedTokenBundle);
+```
 
----
+**Platform API Clients → Token Store**
+```javascript
+// Synchronous call before every publish batch
+rpc RetrieveTokens(RetrieveRequest) returns (DecryptedTokenBundle);
+```
 
-### API Gateway Integration
-The `api_gateway` performs JWT validation on every incoming request (except `/auth/register`, `/auth/login`, `/auth/oauth/*` public initiation). It uses the RS256 public key (cached in memory, refreshed every 5 minutes) to verify the access token signature and extract `userId` and `roles`. The gateway injects `X-User-Id` and `X-User-Roles` headers into downstream requests. It does not interact with `auth_service` per request, avoiding a single point of contention.
+**API Gateway → Downstream Services**
+- `X-User-ID`: extracted from JWT `sub` claim.
+- `X-Scope`: extracted from JWT `scope` claim (e.g., `user`, `admin`).
+- `X-Request-ID`: generated per request for tracing.
 
----
+## Data Ownership
 
-### Security Model
-- **Passwords**: bcrypt with cost factor 12.
-- **JWTs**: RS256-signed. Private key held exclusively by `auth_service`. Public key available to `api_gateway`, `user_service`, and `job_scheduler`.
-- **OAuth Tokens**: AES-256-GCM encryption with a 256-bit data encryption key (DEK) loaded from environment/KMS. Each record uses a unique 96-bit IV. Ciphertext format: `version:iv:authTag:ciphertext`.
-- **Transport**: TLS 1.3 for all external and internal traffic.
-- **Background Jobs**: `platform_publisher` authenticates to `token_store` using mTLS and a service account API key. User context is passed as `X-User-Id` but authorization is enforced by `token_store` (ensuring the requested `userId` matches the caller's service permissions and job ownership).
-
----
+| Component | Collection / Store | Contents |
+|---|---|---|
+| **Auth Service** | `mongodb.users` | User UUID, bcrypt password hash, email verification status, MFA enrollment flags. |
+| **Auth Service** | `mongodb.revoked_tokens` | JTI (JWT ID) and expiry of revoked refresh tokens for logout. |
+| **Auth Service** | `mongodb.oauth_state` | Ephemeral PKCE `code_challenge`, `state` nonce, and `createdAt` for OAuth callbacks (TTL 10 min). |
+| **Token Store** | `mongodb.encrypted_credentials` | Ciphertext of access/refresh tokens, IV, auth tag, DEK reference, `connectionId`, `platform`, `expiresAt`. |
+| **Token Store** | Runtime only | Master key or KMS credentials (never persisted in MongoDB). |
+| **User Service** | `mongodb.platform_connections` | Connection UUID, userId, platform enum, platform account ID, username, connection status (`active`, `expired`, `revoked`), preference references. |
 
 ## Failure Modes
 
 | Failure | Impact | Mitigation |
 |---|---|---|
-| **JWT access token expired** | User receives `401 Unauthorized`. | Client uses `/auth/refresh` with a valid refresh token. |
-| **Refresh token reuse detected** | Potential token theft. | `auth_service` revokes the entire token family; user must re-authenticate with password. |
-| **OAuth token expired before publish** | `platform_publisher` job fails. | `platform_publisher` attempts proactive refresh via platform APIs. If refresh fails, job retries with exponential backoff (max 3 attempts) then surfaces failure to `notification_service`. |
-| **Encryption key compromised** | All stored OAuth tokens potentially exposed. | Key is externalized to a KMS; ciphertext includes key version for re-encryption without downtime. |
-| **MongoDB unavailable** | Login, registration, and token retrieval blocked. | Services return `503 Service Unavailable`. API Gateway caches public keys locally, so existing JWT validation continues. |
-| **Clock skew** | Valid tokens rejected or expired tokens accepted. | JWT validation allows 60-second leeway (`clockTolerance: 60`). |
-| **Brute-force login** | Account takeover risk. | Rate limiting on `/auth/login` and `/auth/register` (100 requests per 15 minutes per IP, enforced by Redis). |
-
----
+| **JWT signing key compromise** | Attacker can forge session tokens. | RS256 key pair with quarterly rotation; old public keys retained in JWKS endpoint for token validation until expiry. |
+| **Refresh token theft** | Persistent unauthorized access. | Refresh token rotation on every use; binding to `jti` in `revoked_tokens` collection; detect reuse and revoke entire family. |
+| **Token Store decryption failure / KMS outage** | Background jobs cannot publish; new OAuth connections fail. | Circuit breaker in Platform API Clients falls back to stale cached tokens (encrypted in-memory, 5-min TTL) if available; alert on-call engineer. |
+| **Platform revokes app access** | Publisher Service receives 401/403 on publish. | Platform API Clients emit `PlatformAuthError.Revoked` event; Notification Service alerts user; User Service marks connection `requires_reauth`. |
+| **OAuth `state` parameter mismatch or replay** | CSRF or session fixation during platform connection. | `state` values are cryptographically random, single-use, and stored in MongoDB `oauth_state` with a 10-minute TTL index. |
+| **Clock skew across API Gateway instances** | JWT `exp`/`nbf` validation failures. | All nodes synchronized via NTP; Gateway allows 30-second leeway in `nbf` checks. |
+| **MongoDB replica set partition** | Auth Service cannot verify passwords or issue tokens; Token Store cannot read/write credentials. | Driver-level retry with exponential backoff; read preferences for `users` collection use `primaryPreferred` to avoid stale reads during fail-over. |
 
 ## Scaling Considerations
 
-- **Statelessness**: Both `auth_service` and `token_store` are stateless. They can be scaled horizontally behind the API Gateway. No sticky sessions required.
-- **Database Load**: 
-  - `users.email` and `refresh_tokens.jti` are unique indexed fields to ensure fast lookups.
-  - `platform_credentials` uses a compound index on `(userId, platform)`.
-- **Cryptographic Overhead**: `token_store` is CPU-bound due to AES operations. In high-throughput scenarios, CPU-optimized instances or a dedicated worker pool should be used.
-- **Public Key Caching**: API Gateway caches the RS256 public key to avoid querying `auth_service` on every request, reducing latency and load.
-- **Rate Limiting**: Redis-backed sliding window counters for authentication endpoints to prevent abuse during traffic spikes.
-
----
+- **API Gateway JWT Validation**: Stateless operation allows horizontal scaling behind a load balancer. The RS256 public key is cached in-memory with a 5-minute TTL to avoid repeated JWKS fetches.
+- **Auth Service Horizontal Scaling**: The service is stateless between requests; OAuth `state` and PKCE data live in MongoDB (not memory), so any instance can handle a callback.
+- **Token Store Throughput**: Encryption/decryption is CPU-bound but low-latency (<5ms). For high throughput, deploy Token Store instances on CPU-optimized nodes and maintain a MongoDB connection pool sized at `2 * CPU cores` per instance.
+- **Background Job Token Access**: `agenda_worker` → `publisher_service` → `platform_api_clients` → `token_store` path must handle burst traffic when thousands of jobs trigger at the same posting window. Token Store supports bulk retrieval (`RetrieveMany`) to reduce round-trips.
+- **Database Load**: MongoDB `encrypted_credentials` collection uses a compound index on `{ connectionId: 1, platform: 1 }` to serve Token Store lookups in <10ms at scale.
 
 ## Consequences
 
-**Positive:**
-- Clear security boundary around OAuth credentials (`token_store`) limits exposure in case of a breach in the API or job layers.
-- Stateless JWT validation at the gateway eliminates per-request auth service lookups, improving latency and availability.
-- RS256 allows any internal service to verify tokens without sharing a symmetric secret.
-- Token family reuse detection mitigates refresh token theft.
+### Positive
+- **Security isolation**: OAuth secrets never traverse the public API layer; they remain encrypted and accessible only to the Token Store and Platform API Clients.
+- **Independent scaling**: Token Store can be scaled and audited independently from user-facing login flows.
+- **Platform abstraction**: Platform API Clients normalize five different OAuth implementations, reducing complexity in Publisher Service.
+- **Auditability**: Every token store read/write and every OAuth callback is logged with `X-Request-ID` for traceability.
 
-**Negative:**
-- Introduces operational complexity: key rotation for JWT signing and AES encryption requires coordinated rollout.
-- Background jobs cannot use user JWTs; they rely on service-to-service trust and internal API keys, which must be strictly rotated and monitored.
-- Token revocation is eventually consistent; a revoked refresh token may remain valid until the in-memory/public-key cache TTL expires (mitigated by short access token TTL).
+### Negative
+- **Operational complexity**: Three components (Auth Service, Token Store, Platform API Clients) must be coordinated for a single platform connection.
+- **Latency overhead**: Publishing requires a synchronous lookup to the Token Store and decryption step, adding ~10–20ms per batch.
+- **Key management burden**: The Token Store introduces a secrets-management requirement (KMS or HSM) that would not exist if tokens were stored in plaintext by a monolith.
 
----
+### Risks
+- If the Token Store encryption key is lost without a backup, all stored OAuth tokens become permanently undecryptable, forcing every user to reconnect all social accounts.
+- Platform API Clients must be updated rapidly when external APIs deprecate OAuth scopes or token formats (e.g., Twitter/X API migrations).
 
 ## Related Diagrams
-
 - `diagrams/001/iter1_overview.mmd`
 - `diagrams/001/iter1_auth-flow.mmd`
-- `diagrams/001/iter1_component-auth-service.mmd`
-- `diagrams/001/iter1_component-token-store.mmd`

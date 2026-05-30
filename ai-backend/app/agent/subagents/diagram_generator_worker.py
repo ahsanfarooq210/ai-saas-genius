@@ -75,7 +75,8 @@ class DiagramGenerator:
 
         for attempt in range(_MAX_LINT_ATTEMPTS):
             response = _llm.invoke(messages)
-            diagram_text = self._strip_code_fences(assistant_text(response))
+            raw_text = assistant_text(response).strip()
+            diagram_text = self._strip_code_fences(raw_text)
 
             lint_result = mermaid_linter.invoke({"diagram": diagram_text})
 
@@ -95,7 +96,9 @@ class DiagramGenerator:
                 f"attempt {attempt + 1}: {lint_result}"
             )
 
-            messages.append({"role": "assistant", "content": assistant_text(response)})
+            # Providers (e.g. Moonshot) reject empty assistant messages on retry.
+            assistant_turn = raw_text or diagram_text or "(no diagram content returned)"
+            messages.append({"role": "assistant", "content": assistant_turn})
             messages.append(
                 {
                     "role": "user",

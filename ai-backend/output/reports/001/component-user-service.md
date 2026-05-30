@@ -1,132 +1,158 @@
+# User Service
+
 ## Responsibilities
 
-- **Profile Management**: Persist and mutate core user identity records, enforcing uniqueness constraints on `email` and `username` at the MongoDB layer. Mutable fields include `displayName`, `timezone` (IANA-validated), and `locale`.
-- **Posting Preferences Ownership**: Maintain the canonical automation rules that drive content generation: target platforms (`instagram`, `twitter`, `youtube`, `tiktok`), allowed media types (`photo`, `video`, `reel`, `story`), posting frequency limits, caption templates with replaceable placeholders (`{hashtags}`, `{date}`), default hashtag sets, and timezone-aware publishing windows (`day`, `startTime`, `endTime`).
-- **Platform Configuration**: Store per-account publishing behavior for each connected social platform, including feed-vs-story targeting, aspect-ratio overrides, and auto-thread settings. Tracks an `isActive` boolean so users can pause a platform without revoking OAuth credentials held in the Token Store.
-- **Media Ownership Index**: Curate a `user_media_index` collection that maps `userId` to blob keys residing in `media_storage`. Tracks `mimeType`, `uploadedAt`, `fileSize`, and `processingStatus` (`pending`, `ready`, `consumed`), enabling the service to list eligible media without scanning the blob store.
-- **Constraint Validation**: Reject invalid preference permutations before persistence, such as video-only configurations paired with text-only platforms, overlapping publishing windows that wrap inconsistently across midnight, or hashtag sets exceeding platform-specific character limits.
-- **Downstream Data Contract**: Own the MongoDB schema for `user_preferences`, `platform_configs`, and `user_media_index`. The Job Scheduler and Media Processor consume these collections directly; User Service guarantees backward-compatible schema versions via an explicit `schemaVersion` field.
+The User Service is the authoritative source for user identity metadata, linked social platform accounts, and posting preference configurations within the social media automation platform. It operates as an Express.js microservice and persists all state to MongoDB.
 
-## APIs / Interfaces
+- **User Profile Management**: Maintains core identity records including display name, email, timezone, locale, and account status. Handles profile updates and enforces uniqueness constraints on email addresses.
+- **Platform Connection Registry**: Tracks which social platforms (Instagram, Twitter/X, Facebook, TikTok, LinkedIn) a user has connected. Stores references to OAuth credentials managed by the `auth_service` and `token_store`, along with per-platform metadata such as page IDs, handles, and connection health status.
+- **Posting Preference Configuration**: Manages the scheduling and content parameters that drive the `scheduler_service`. This includes target platforms, posting frequency (e.g., posts per day or explicit intervals), preferred media types (photo vs. video), default caption templates, hashtag sets, publishing time windows with day-of-week granularity, and account-specific overrides per platform.
+- **Settings Validation**: Enforces business rules on preference documents before persistence. Examples include: ensuring time windows are logically valid (start < end), rejecting unsupported platform combinations, capping maximum daily post frequencies to prevent abuse, and validating timezone strings against the IANA database.
+- **Account Lifecycle**: Orchestrates user deletion and deactivation flows. On deletion, initiates cascading cleanup of connections and preferences, and coordinates with downstream services (via eventual consistency or explicit hooks) to cancel pending scheduled jobs.
 
-The service exposes an internal REST API consumed by the API Gateway. Background workers read preference data directly from the MongoDB collections owned by this service.
+## APIs and Interfaces
 
-### REST Endpoints
+### REST API (HTTP/JSON)
 
-```http
-GET /v1/users/:userId/profile
-```
-Returns the user identity document (excludes internal MongoDB metadata).
+The service exposes an internal REST API consumed exclusively by the `api_gateway`. All endpoints require a valid user-scoped bearer token, which is validated via the `auth_service`.
 
-```http
-PATCH /v1/users/:userId/profile
-Content-Type: application/json
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/v1/users/:userId/profile` | Retrieve user profile by ID. |
+| `PATCH` | `/v1/users/:userId/profile` | Update mutable profile fields (display name, timezone, locale). |
+| `GET` | `/v1/users/:userId/connections` | List all active and inactive platform connections. |
+| `POST` | `/v1/users/:userId/connections` | Register a new platform connection after OAuth completion. Accepts `platform`, `platformUserId`, and `tokenStoreRef`. |
+| `DELETE` | `/v1/users/:userId/connections/:platform` | Mark a platform connection as disconnected. Triggers preference validation to remove the platform from active targets. |
+| `GET` | `/v1/users/:userId/preferences` | Retrieve the user's master posting preferences document. |
+| `PUT` | `/v1/users/:userId/preferences` | Idempotently replace the entire posting preferences configuration. |
+| `PATCH` | `/v1/users/:userId/preferences` | Partially update preferences (e.g., adjust time windows only). |
+| `GET` | `/v1/users/:userId/preferences/:platform` | Retrieve account-specific overrides for a single platform. |
+| `DELETE` | `/v1/users/:userId` | Initiate hard deletion of the user and all owned data. |
 
-{
-  "displayName": "Jane Doe",
-  "timezone": "America/Los_Angeles",
-  "locale": "en-US"
-}
-```
-Partial update of mutable profile fields. Rejects non-IANA timezones with `400 Bad Request`.
+**Request/Response Contracts**
 
-```http
-GET /v1/users/:userId/preferences
-```
-Returns the full `user_preferences` document, including platform targets, posting frequency, captions, hashtags, and publishing windows.
-
-```http
-PUT /v1/users/:userId/preferences
-Content-Type: application/json
-
-{
-  "platforms": ["instagram", "twitter"],
-  "mediaTypes": ["photo", "video"],
-  "postingFrequency": { "type": "daily", "maxPosts": 3 },
-  "publishingWindows": [
-    { "day": "tuesday", "startTime": "09:00", "endTime": "11:00" }
-  ],
-  "defaultCaptions": ["Morning update! {hashtags}"],
-  "defaultHashtags": ["#tech", "#auto"],
-  "maxDailyPosts": 3
-}
-```
-Upserts posting preferences. Runs platform-compatibility and business-rule validation atomically; returns `400` on constraint violations.
-
-```http
-GET /v1/users/:userId/platforms
-```
-Returns active platform configurations from `platform_configs`.
-
-```http
-PATCH /v1/users/:userId/platforms/:platformKey/settings
-Content-Type: application/json
-
-{
-  "isActive": true,
-  "settings": {
-    "instagram": { "targetFeed": "main", "aspectRatio": "4:5" }
+- `PostingPreferences` (request body for `PUT /v1/users/:userId/preferences`):
+  ```json
+  {
+    "targetPlatforms": ["instagram", "twitter"],
+    "postingFrequency": { "type": "interval", "minutes": 360 },
+    "mediaTypePreferences": ["photo", "video"],
+    "defaultCaptionTemplate": "Check out our latest update!",
+    "defaultHashtagSets": [["#tech", "#innovation"], ["#startup"]],
+    "publishingTimeWindows": [
+      { "day": "monday", "startTime": "09:00", "endTime": "17:00", "timezone": "America/New_York" }
+    ],
+    "accountSpecificPreferences": {
+      "instagram": { "aspectRatio": "1:1", "requireThumbnail": true }
+    }
   }
-}
-```
-Updates per-platform overrides. `:platformKey` is enum-restricted to supported platforms.
+  ```
 
-```http
-GET /v1/users/:userId/media
-```
-Queries the `user_media_index` and returns metadata for blobs awaiting or already associated with scheduled posts, including `storageKey`, `processingStatus`, and `scheduledJobId`.
+- Error responses use standard HTTP status codes:
+  - `400` — Validation failure (malformed timezone, invalid time window).
+  - `404` — User or connection not found.
+  - `409` — Conflict (duplicate connection for the same platform account).
+  - `422` — Business rule violation (e.g., frequency exceeds platform rate limits defined in user tier).
 
-### Internal Database Contract
+### Internal Service Interfaces
 
-- **`users`** — Source of truth for identity.
-- **`user_preferences`** — Consumed by Job Scheduler to determine what content to create and when to queue Agenda.js jobs.
-- **`platform_configs`** — Consumed by Platform Publisher to resolve per-platform posting behavior (e.g., `feed` vs. `story`).
-- **`user_media_index`** — Consumed by Media Processor to claim `pending` media for background processing and by Job Scheduler to verify media readiness before finalizing publish jobs.
+- **`auth_service`**: The User Service calls `auth_service` to verify token ownership and resolve the principal `userId` from JWT claims during internal request processing. It also queries `auth_service` to validate that a completed OAuth flow exists before persisting a new `platform_connection` record.
+- **`mongodb`**: Direct Mongoose/MongoDB driver connections. Uses replica-set aware connection strings with `w: majority` write concern for preference updates to ensure the `scheduler_service` reads consistent data.
+- **`scheduler_service` (indirect)**: The User Service does not call the scheduler directly. Instead, preference documents are designed to be polled or change-streamed by the `scheduler_service` to generate Agenda.js job definitions.
 
 ## Data Owned
 
-| Collection | Purpose | Key Fields |
-|---|---|---|
-| `users` | Core identity and locale | `_id`, `email`, `username`, `displayName`, `timezone`, `locale`, `createdAt` |
-| `user_preferences` | Automation rules and content templates | `userId`, `schemaVersion`, `platforms[]`, `mediaTypes[]`, `postingFrequency`, `publishingWindows[]`, `defaultCaptions[]`, `defaultHashtags[]`, `maxDailyPosts`, `updatedAt` |
-| `platform_configs` | Per-platform publishing behavior | `userId`, `platform`, `accountId`, `isActive`, `settings` (flexible subdocument), `createdAt` |
-| `user_media_index` | User-to-media mapping and lifecycle | `userId`, `storageKey`, `originalName`, `mimeType`, `fileSize`, `processingStatus`, `scheduledJobId`, `uploadedAt` |
+All data is stored in MongoDB under a dedicated service database (e.g., `user_service_db`).
 
-- **Media Storage Relation**: User Service does not store binary objects. It persists metadata and blob keys in `user_media_index`; the actual bytes reside in `media_storage`. On upload, the API Gateway streams bytes to `media_storage`, then User Service records the resulting key with `processingStatus: pending`.
-- **Schema Versioning**: `user_preferences` documents carry an integer `schemaVersion` (current `2`). Downstream consumers inspect this field before parsing to tolerate rolling updates without service-wide lockstep deployments.
+### `users` Collection
+Core identity and account metadata.
+```javascript
+{
+  _id: ObjectId("..."),
+  email: "user@example.com",           // unique, indexed
+  displayName: "Jane Doe",
+  timezone: "America/Los_Angeles",
+  locale: "en-US",
+  accountStatus: "active",             // enum: active | suspended | deleting
+  createdAt: ISODate("2024-01-15T10:00:00Z"),
+  updatedAt: ISODate("2024-06-01T12:30:00Z"),
+  preferencesRef: ObjectId("...")      // reference to posting_preferences
+}
+```
+
+### `platform_connections` Collection
+Links users to external social accounts. Stores no secrets; references tokens in `token_store`.
+```javascript
+{
+  _id: ObjectId("..."),
+  userId: ObjectId("..."),             // indexed
+  platform: "instagram",             // indexed
+  platformUserId: "123456789",
+  tokenStoreRef: "secure-ref-uuid",  // opaque handle for token_store
+  connectionStatus: "active",        // active | revoked | expired | error
+  platformMetadata: {
+    username: "jane_doe",
+    pageId: null,
+    profilePictureUrl: "https://..."
+  },
+  connectedAt: ISODate("2024-02-01T08:00:00Z"),
+  lastVerifiedAt: ISODate("2024-06-01T09:00:00Z"),
+  disconnectedAt: null
+}
+```
+
+### `posting_preferences` Collection
+The master configuration document consumed by the scheduling pipeline.
+```javascript
+{
+  _id: ObjectId("..."),
+  userId: ObjectId("..."),             // unique, indexed
+  targetPlatforms: ["instagram", "twitter"],
+  postingFrequency: {
+    type: "fixed_count",               // fixed_count | interval
+    postsPerDay: 3
+  },
+  mediaTypePreferences: ["photo", "video"],
+  defaultCaptionTemplate: "New drop!",
+  defaultHashtagSets: [["#style", "#fashion"]],
+  publishingTimeWindows: [
+    {
+      day: "tuesday",
+      startTime: "10:00",
+      endTime: "14:00",
+      timezone: "Europe/London"
+    }
+  ],
+  accountSpecificPreferences: {
+    "twitter": { "threadMode": false, "maxChars": 280 }
+  },
+  isActive: true,                      // master kill-switch for scheduling
+  version: 4,                          // optimistic concurrency control
+  updatedAt: ISODate("2024-06-10T15:00:00Z")
+}
+```
 
 ## Failure Modes
 
-- **Stale Preference Reads During Scheduling**: If a user updates preferences while the Job Scheduler is scanning `user_preferences` to generate Agenda.js jobs, the scheduler may operate on a partially mutated document.  
-  *Mitigation*: User Service performs atomic full-document replacement updates (`$set`) and increments `schemaVersion`. The Job Scheduler snapshots queries or targets a stable `schemaVersion` range during batch reads.
-
-- **Invalid Timezone or Window Configuration**: Clients may submit non-existent timezones or publishing windows with `startTime` after `endTime`.  
-  *Mitigation*: API-layer validation using IANA timezone lookups and window boundary checks rejects the request with `400 Bad Request` before any MongoDB write.
-
-- **Orphaned Documents on User Deletion**: Removing a user from `users` without cascading to `platform_configs`, `user_preferences`, and `user_media_index` leaves orphaned records that downstream workers may still reference.  
-  *Mitigation*: A post-deletion async cleanup worker deletes all documents matching `userId` within 60 seconds of user deletion, with idempotent retry logic.
-
-- **Media Index Drift**: If the Media Processor updates a blob in `media_storage` but the `user_media_index` status update fails (network partition), the Job Scheduler may attempt to schedule media still marked `pending`.  
-  *Mitigation*: Media Processor writes `processingStatus: ready` to `user_media_index` before completing its Agenda.js job. The Job Scheduler filters strictly on `processingStatus: ready` when building publish jobs.
-
-- **Unbounded Document Growth**: Users could append unlimited hashtags or publishing windows, degrading query performance or approaching the 16 MB document limit.  
-  *Mitigation*: Hard API-level limits: max 30 hashtags, max 7 publishing windows per document. Requests exceeding limits are rejected rather than silently truncated.
-
-- **Write Concern Loss**: A preference update acknowledged to the client could be lost during a primary failover if write concern is insufficient.  
-  *Mitigation*: All `PUT /preferences` and `PATCH /platforms` operations use `writeConcern: { w: "majority", j: true }` because these documents directly drive paid publishing actions.
+| Failure | Impact | Mitigation |
+|---------|--------|------------|
+| **Stale Platform Connection** | User revokes OAuth externally; platform API returns auth errors during publish. | `connectionStatus` is updated to `revoked` via webhook or polling from `auth_service`. The service rejects new scheduler jobs for revoked platforms and forces preference re-validation. |
+| **Preference Validation Error** | Invalid schedule (e.g., `startTime` after `endTime`) causes `scheduler_service` to create malformed Agenda.js jobs. | Strict schema validation at the API layer using `Joi` or Zod. Time windows are normalized to UTC and checked for zero-duration intervals before persistence. |
+| **Concurrent Preference Update** | Two simultaneous `PATCH` requests overwrite each other, causing lost updates to posting frequency. | Optimistic locking via an integer `version` field on `posting_preferences`. Updates are rejected with `409 Conflict` if the provided version does not match the stored document. |
+| **`auth_service` Unavailability** | Token validation or user resolution fails; profile reads/writes block. | Circuit breaker on `auth_service` calls. Read-only profile endpoints may degrade to cached claims from the API Gateway if the user document was recently accessed. Write endpoints fail fast with `503`. |
+| **MongoDB Replication Lag** | `scheduler_service` reads a stale preference document immediately after a user update, scheduling posts with old settings. | Write concern `w: majority` and read preference `primary` for preference mutations. Alternatively, expose a change stream that `scheduler_service` consumes to guarantee eventual consistency. |
+| **Account Deletion Orphans** | Hard deletion of a user leaves `platform_connections` or `posting_preferences` documents behind due to non-transactional cleanup. | Wrap deletion in a MongoDB multi-document ACID transaction spanning `users`, `platform_connections`, and `posting_preferences` collections. |
+| **Timezone DST Ambiguity** | A preference specifies `02:30` in `America/New_York` during the spring-forward transition, resulting in an invalid local time. | Normalize all time windows to UTC at write time based on the user's current timezone rules. Re-calculate UTC boundaries nightly for users in zones with upcoming DST changes. |
 
 ## Scaling Considerations
 
-- **Stateless Horizontal Scaling**: The Node.js/Express layer holds no session state. Scale out by adding instances behind the API Gateway load balancer; all persistence is delegated to MongoDB.
-- **Read Optimization for Background Workers**: The Job Scheduler polls `user_preferences` and `platform_configs` to generate upcoming jobs. To prevent scheduler polling from impacting user-facing write latency, route worker queries to MongoDB secondary nodes, or maintain a read-optimized projection collection populated by change streams.
-- **Indexing Strategy**:
-  - `users`: `{ email: 1 }` (unique), `{ username: 1 }` (unique)
-  - `user_preferences`: `{ userId: 1 }` (unique), `{ userId: 1, updatedAt: -1 }`
-  - `platform_configs`: `{ userId: 1, platform: 1 }` (unique), `{ userId: 1, isActive: 1 }`
-  - `user_media_index`: `{ userId: 1, processingStatus: 1 }`, `{ storageKey: 1 }`
-- **Sharding Path**: If `user_media_index` volume exceeds single-node capacity due to high media upload throughput, shard the collection by hashed `userId`. `user_preferences` can remain unsharded longer because it is bounded to one document per user.
-- **Publishing Window Pre-computation**: Converting timezone-aware windows into UTC for Agenda.js is CPU-intensive during bulk scheduling. Denormalize the next 7-day UTC execution matrix inside the `user_preferences` document whenever it is updated, so the Job Scheduler performs a simple read instead of repeated timezone arithmetic.
+- **Read-heavy Profile Access**: User profiles and preferences are read on nearly every authenticated request. Deploy secondary-read caching (e.g., an in-memory LRU cache for hot preference documents, or a dedicated Redis layer) to reduce MongoDB query load, with cache invalidation keyed on `preferences.version`.
+- **Database Indexing**: Maintain compound indexes on `{ userId: 1, platform: 1 }` in `platform_connections` and `{ userId: 1 }` with a partial filter `{ isActive: true }` in `posting_preferences` to accelerate scheduler polling queries.
+- **Sharding Strategy**: Shard `posting_preferences` and `platform_connections` by `userId` hash to distribute write load as the user base grows. `users` should remain a smaller collection but can also shard by `userId` for symmetry.
+- **Scheduler Decoupling**: The `scheduler_service` should not query the User Service synchronously for every job tick. Instead, preference documents should be snapshotted or replicated into the scheduler's domain at write-time to eliminate runtime coupling and allow the User Service to scale independently.
+- **Connection State Polling**: Avoid polling every external platform from the User Service. Connection health should be driven by events (webhooks from platforms processed via `auth_service`) or by the `publisher_service` reporting failures back through the system, rather than active health checks within this service.
+- **Rate Limiting on Preference Mutations**: Aggressive updates to posting preferences can churn Agenda.js job definitions. Enforce a minimum cooldown (e.g., 30 seconds) between preference `PUT` operations for the same user to dampen scheduler re-computation.
 
 ## Related Diagrams
 
-No paired Mermaid diagram is provided for this component document.
+No paired diagram is provided for this component.

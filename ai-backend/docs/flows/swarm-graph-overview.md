@@ -363,11 +363,17 @@ flowchart TB
 
 ## 10. Phase 9 supervisor (implemented)
 
-Parent graph uses `docs_complete`, `iteration_count`, `scalability_feedback`, and `security_feedback` for routing. Stubs in `scalability_expert.py` and `security_auditor.py` return `STATUS: APPROVED`. See [langchain-langgraph-build-plan.md](../learning/langchain-langgraph-build-plan.md).
+Parent graph uses `docs_complete`, `iteration_count`, `scalability_feedback`, and `security_feedback` for routing. See [langchain-langgraph-build-plan.md](../learning/langchain-langgraph-build-plan.md).
 
 ---
 
-## 11. Verification
+## 11. Phase 10 reviewers (implemented)
+
+`scalability_expert.py` and `security_auditor.py` call `get_chat_llm()` with adversarial prompts. Each pass appends a `DebateLogEntry` to `debate_logs`. `REJECTED` routes to `architect_graph`; `lead_architect` injects prior critiques and clears reviewer flags; `reduce_docs` uses `Overwrite` on re-runs.
+
+---
+
+## 12. Verification
 
 | Check | Where |
 |-------|--------|
@@ -375,4 +381,5 @@ Parent graph uses `docs_complete`, `iteration_count`, `scalability_feedback`, an
 | Reducer on `generated_diagrams` | `tests/test_reducer_phase6.py` |
 | Checkpoint payload | `tests/test_checkpoint_payload.py` |
 | Supervisor routing | `tests/test_supervisor_routing_phase9.py` |
+| Reviewer parse + nodes | `tests/test_reviewer_common_phase10.py`, `tests/test_reviewer_nodes_phase10.py` |
 | Full run | `POST /api/v1/swarm/run` with LLM env configured |

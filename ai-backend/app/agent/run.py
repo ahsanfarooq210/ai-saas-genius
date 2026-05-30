@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.agent.state.schema import DiagramEntry, DocEntry
+from app.agent.state.schema import DebateLogEntry, DiagramEntry, DocEntry
 
 from app.agent.graphs.supervisor_graph import supervisor_graph
 
@@ -46,11 +46,28 @@ def doc_checkpoint_items(docs: list[DocEntry] | None) -> list[dict[str, Any]]:
     return items
 
 
+def debate_log_checkpoint_items(
+    logs: list[DebateLogEntry] | None,
+) -> list[dict[str, Any]]:
+    """Summarize debate logs for GET /state (omit full feedback bodies)."""
+    items: list[dict[str, Any]] = []
+    for entry in logs or []:
+        items.append(
+            {
+                "agent": entry["agent"],
+                "status": entry["status"],
+                "iteration": entry.get("iteration", 0),
+            }
+        )
+    return items
+
+
 def build_checkpoint_payload(thread_id: str, snapshot: Any) -> dict[str, Any]:
     """Shape a LangGraph StateSnapshot into the SwarmCheckpointResponse contract."""
     values: dict[str, Any] = dict(snapshot.values or {})
     diagrams: list[DiagramEntry] = values.get("generated_diagrams") or []
     docs: list[DocEntry] = values.get("generated_docs") or []
+    debate_logs: list[DebateLogEntry] = values.get("debate_logs") or []
 
     return {
         "thread_id": thread_id,
@@ -67,6 +84,8 @@ def build_checkpoint_payload(thread_id: str, snapshot: Any) -> dict[str, Any]:
         "next_agent": values.get("next_agent") or "",
         "scalability_feedback": values.get("scalability_feedback") or "",
         "security_feedback": values.get("security_feedback") or "",
+        "debate_log_count": len(debate_logs),
+        "debate_logs": debate_log_checkpoint_items(debate_logs),
         "values": values,
     }
 

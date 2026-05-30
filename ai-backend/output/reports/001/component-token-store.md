@@ -1,111 +1,127 @@
-## Token Store
+## component-token-store
+
+### Overview
+The Token Store is an internal encryption boundary responsible for persisting OAuth 2.0 credentials for third-party social platforms. It ensures that access tokens, refresh tokens, and bearer credentials never exist in plaintext inside MongoDB, application logs, or heap dumps. The component is consumed directly as a library module by `auth_service` (during connection and refresh flows) and by `platform_api_clients` (during publish execution).
 
 ### Responsibilities
-- Persist OAuth 2.0 access tokens and refresh tokens for connected social media accounts (e.g., Instagram, Twitter/X, Facebook, TikTok) in an encrypted state at rest inside MongoDB.
-- Decrypt and return plaintext credentials to authorized internal consumers (`auth_service` and `platform_publisher`) on demand.
-- Atomically replace token pairs during OAuth refresh flows, preventing race conditions where concurrent jobs use an invalidated refresh token.
-- Bind every credential set to a composite identity of `userId`, `platform`, and `platformAccountId` to enforce strict isolation and auditability.
-- Support complete credential revocation on account disconnection or user deletion, ensuring no stale tokens remain available for automated publishing.
+- **At-Rest Encryption**: Encrypt access and refresh tokens using AES-256-GCM with a dedicated root key before writing to MongoDB.
+- **Token Lifecycle Management**: Store newly issued tokens after initial OAuth consent, atomically update credentials after a refresh-token exchange, and permanently delete records when a user disconnects an account or revokes platform consent.
+- **Secure Retrieval**: Decrypt and return plaintext credentials only to authorized internal callers; reject direct database access patterns from other services.
+- **Metadata Exposure**: Keep non-sensitive fields—`platform`, `accountId`, `expiresAt`, and `scope`—in plaintext so that `scheduler_service` and `auth_service` can query and schedule without decryption overhead.
+- **Audit Logging**: Record every read, write, and delete operation with `userId`, `platform`, `accountId`, consuming service identity, and timestamp.
 
-### APIs / Interfaces
-The Token Store is an internal Node.js service/module; it is not exposed directly to the public API gateway. All consumers interact through the following programmatic interface:
+### APIs and Interfaces
+The Token Store exposes an internal asynchronous API consumed as a Node.js module. It does not surface HTTP endpoints.
 
-```typescript
-interface TokenStore {
-  upsertTokenSet(params: {
-    userId: ObjectId;
-    platform: string;
-    platformAccountId: string;
-    accessToken: string;
-    refreshToken: string | null;
-    scopes: string[];
-    expiresAt: Date | null;
-  }): Promise<TokenRecord>;
+```javascript
+class TokenStore {
+  /**
+   * Encrypt and persist a new token set after initial OAuth flow.
+   */
+  async storeTokens({
+    userId,
+    platform,      // 'instagram' | 'twitter' | 'facebook' | 'tiktok' | 'linkedin'
+    accountId,     // Platform-specific user or page ID
+    accessToken,
+    refreshToken,
+    expiresAt,     // Date
+    scope          // Array<String>
+  }): Promise<{ insertedId: string }>;
 
-  getDecryptedTokenSet(params: {
-    userId: ObjectId;
-    platform: string;
-    platformAccountId: string;
+  /**
+   * Retrieve and decrypt tokens for publishing or refresh.
+   */
+  async getTokens({
+    userId,
+    platform,
+    accountId
   }): Promise<{
-    accessToken: string;
-    refreshToken: string | null;
-    scopes: string[];
-    expiresAt: Date | null;
+    accessToken: string,
+    refreshToken: string,
+    expiresAt: Date,
+    scope: string[]
   }>;
 
-  rotateTokens(params: {
-    userId: ObjectId;
-    platform: string;
-    platformAccountId: string;
-    newAccessToken: string;
-    newRefreshToken: string | null;
-    newExpiresAt: Date | null;
+  /**
+   * Atomic update after a refresh token exchange.
+   */
+  async updateTokens({
+    userId,
+    platform,
+    accountId,
+    newAccessToken,
+    newRefreshToken, // optional; some platforms rotate it
+    newExpiresAt
   }): Promise<void>;
 
-  revokeTokenSet(params: {
-    userId: ObjectId;
-    platform: string;
-    platformAccountId: string;
+  /**
+   * Remove credentials on disconnect, revocation, or account deletion.
+   */
+  async deleteTokens({
+    userId,
+    platform,
+    accountId
   }): Promise<void>;
 
-  purgeUserTokens(userId: ObjectId): Promise<number>; // returns deleted count
-
-  listAccountsByUser(userId: ObjectId): Promise<AccountSummary[]>;
+  /**
+   * List connected accounts for a user without returning secrets.
+   */
+  async listAccounts(userId: string): Promise<{
+    platform: string,
+    accountId: string,
+    expiresAt: Date,
+    scope: string[]
+  }[]>;
 }
 ```
 
-**Encryption contract:**
-- All token strings are encrypted with AES-256-GCM before being written to MongoDB.
-- The master data-encryption key (DEK) is loaded from a KMS or secure environment secret at process startup; the DEK is never persisted in the database.
-- Each ciphertext is accompanied by a random 96-bit IV and a 128-bit authentication tag stored as hex in dedicated document fields, ensuring confidentiality and tamper detection.
+### Data Ownership
+All records live in the MongoDB collection `platform_tokens`. The schema isolates ciphertext from queryable metadata.
 
-### Data It Owns
-**MongoDB Collection:** `platform_tokens`
+```javascript
+{
+  _id: ObjectId,
+  userId: ObjectId,              // Indexed. Candidate shard key.
+  platform: String,                // Indexed. Enum: instagram, twitter, facebook, tiktok, linkedin.
+  accountId: String,               // Indexed. Composite unique with userId + platform.
+  
+  // Encrypted payload (AES-256-GCM)
+  accessCipher: String,            // Base64 ciphertext.
+  refreshCipher: String,           // Base64 ciphertext.
+  iv: String,                      // 16-byte initialization vector, Base64.
+  authTag: String,                 // 128-bit GCM authentication tag, Base64.
+  encVersion: String,              // Key version identifier (e.g., "kv-2024-06").
+  
+  // Plaintext metadata
+  expiresAt: Date,                 // Indexed. Enables proactive refresh scheduling.
+  scope: [String],
+  
+  // Audit fields
+  createdAt: Date,
+  updatedAt: Date,
+  lastAccessedAt: Date,
+  lastRefreshedAt: Date
+}
+```
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `_id` | ObjectId | Primary key |
-| `userId` | ObjectId | Owner reference; shard key candidate |
-| `platform` | String | Platform identifier (e.g., `instagram`, `twitter`) |
-| `platformAccountId` | String | Platform-native user or page ID |
-| `accessTokenCipher` | String | AES-256-GCM ciphertext (hex) |
-| `accessTokenIv` | String | 96-bit nonce (hex) |
-| `accessTokenTag` | String | 128-bit GCM auth tag (hex) |
-| `refreshTokenCipher` | String | AES-256-GCM ciphertext (hex) |
-| `refreshTokenIv` | String | 96-bit nonce (hex) |
-| `refreshTokenTag` | String | 128-bit GCM auth tag (hex) |
-| `scopes` | [String] | Granted OAuth scopes |
-| `expiresAt` | Date | Access token expiration; nullable |
-| `encryptionVersion` | String | DEK version for rotation tracking |
-| `createdAt` | Date | Record creation timestamp |
-| `updatedAt` | Date | Last mutation timestamp |
-| `lastRefreshedAt` | Date | Last successful refresh timestamp |
-
-**Indexes:**
-- Unique compound index: `{ userId: 1, platform: 1, platformAccountId: 1 }` — prevents duplicate connections.
-- `{ userId: 1 }` — supports user-scoped lookups and cascading deletes.
-- `{ expiresAt: 1 }` — enables proactive expiry queries by background refresh jobs.
-- `{ platform: 1 }` — operational index for platform-wide maintenance or deprecation.
+**Indexes**
+- `{ userId: 1, platform: 1, accountId: 1 }` — unique, primary lookup.
+- `{ userId: 1 }` — supports account listing.
+- `{ expiresAt: 1 }` — allows `scheduler_service` to find tokens nearing expiration.
 
 ### Failure Modes
-- **Concurrent refresh collisions:** If two `platform_publisher` jobs detect expiry simultaneously and both initiate an OAuth refresh, the platform provider may invalidate the shared refresh token. The Token Store must serialize writes per account using MongoDB `findOneAndUpdate` with a predicate on a known token value, or acquire a distributed lock via the `job_scheduler`’s MongoDB-backed locking mechanism.
-- **Decryption failure on corrupted ciphertext:** Bit-rot, manual DB edits, or mismatched encryption keys can cause AES-GCM decryption to fail. The store must catch these errors, emit structured logs with `userId` and `platformAccountId` (never the token), and return a `TOKEN_UNRECOVERABLE` error to force re-authentication via `auth_service`.
-- **MongoDB read-your-writes lag:** Reading from a secondary after a token rotation may return the old invalidated token, causing the publish job to fail with an authentication error from the platform. All token reads must use `readPreference: 'primary'` to guarantee freshness.
-- **Credential leakage via internal compromise:** Because `platform_publisher` and `auth_service` both consume decrypted tokens, a compromised internal service could exfiltrate credentials. Mitigation: deploy the Token Store as an isolated process or sidecar, enforce mTLS and short-lived internal JWTs between services, and restrict decryption to the Token Store runtime only.
-- **Orphaned tokens after user deletion:** If `user_service` deletes a profile without cascading to `platform_tokens`, zombie credentials remain. The store exposes `purgeUserTokens` and must be invoked transactionally or via an outbox pattern to guarantee eventual consistency.
-- **KMS/secret provider outage:** If the DEK cannot be fetched at startup, the process must fail-fast (exit with non-zero code) rather than start in a degraded mode that could write unencrypted tokens or return misleading errors.
+| Failure | Impact | Mitigation |
+|---|---|---|
+| **Encryption key loss** | All stored tokens become permanently undecipherable; users must re-authenticate every connected platform. | Store the root key in an external KMS (e.g., AWS KMS, HashiCorp Vault) or HSM. Never commit keys to source control. Maintain an immutable key rotation log. |
+| **Race condition on refresh** | Two concurrent `agenda_worker` jobs refresh the same token simultaneously. The platform invalidates the first issued refresh token, causing the second caller to fail with an invalid grant. | Use an atomic find-and-update in MongoDB with an `encVersion` check, or acquire a distributed lock (e.g., Redis Redlock) in `auth_service` before initiating the platform refresh request. |
+| **Stale or revoked refresh token** | A user revokes access from the platform's native security settings. The system can no longer refresh access, and scheduled publishes fail indefinitely. | Catch OAuth `invalid_grant` errors in `platform_api_clients`. Surface the failure via `notification_service`, then invoke `deleteTokens` to scrub the dead credential and mark the account as disconnected. |
+| **MongoDB unavailability** | `publisher_service` cannot retrieve tokens; publish jobs fail. `auth_service` cannot persist new connections. | Return explicit, non-retryable errors to callers so Agenda.js marks jobs failed and applies backoff. Do not swallow connection timeouts as authentication failures. |
+| **Decryption corruption** | A document is tampered with or suffers bit-rot; the GCM authentication tag fails verification. | Throw a fatal decryption error, log the incident with document metadata (never the ciphertext), and surface a notification. Do not proceed with a suspected credential. |
+| **Memory exposure** | Plaintext tokens linger in the Node.js heap after retrieval, risking exposure in crash dumps or heap snapshots. | Nullify token variables immediately after use in `platform_api_clients`; disable heap dump endpoints in production; run the Token Store module in a separate worker thread if the threat model requires process isolation. |
 
 ### Scaling Considerations
-- **Read-heavy publish path:** Every scheduled publish job triggers at least one token fetch. Under thousands of concurrent Agenda.js jobs, MongoDB primary read throughput becomes the bottleneck.
-  - Maintain an appropriately sized MongoDB connection pool (e.g., `maxPoolSize: 50–100`) tuned to the Node.js event loop.
-  - Do not cache decrypted tokens in an external Redis cache; if read latency is critical, cache ciphertext only with a TTL under 30 seconds and decrypt on every retrieval.
-- **Thundering herd on mass expiry:** Platform-mandated refresh cycles (e.g., 60-day Facebook token expiry) can cause write spikes.
-  - Coordinate with `job_scheduler` to schedule refresh jobs with randomized jitter (0–3600s) to spread the load.
-  - Use bulk-write patterns when performing maintenance re-encryption during key rotation.
-- **Shard key selection:** If the collection outgrows a single replica set, shard by `userId` to keep a user’s tokens on a single chunk, avoiding scatter-gather queries.
-- **Encryption CPU overhead:** AES-256-GCM in Node.js is efficient but measurable at very high concurrency. If profiling reveals encryption as a bottleneck, offload bulk re-encryption tasks to Node.js worker threads.
-- **Backup and compliance:** MongoDB backups contain ciphertext only; KMS keys must be backed up independently. Provide a hard-delete API (`purgeUserTokens`) for GDPR/CCPA right-to-erasure requests, because retaining encrypted credentials still constitutes possession of personal data.
-
-## Related Diagrams
-
-No paired diagram was provided for this document.
+- **CPU-Bound Cryptography**: AES-256-GCM operations in Node.js `crypto` are synchronous and run on the main thread. Under high concurrency—when hundreds of `agenda_worker` jobs publish simultaneously—decryption can stall the event loop. If profiling reveals event-loop lag, offload encryption/decryption to a `worker_threads` pool or a dedicated sidecar.
+- **Database Read Hotspot**: Every publish job triggers at least one token read. As daily post volume grows into the hundreds of thousands, the `platform_tokens` collection becomes a read hotspot. Shard MongoDB by `userId` to distribute load. An encrypted in-memory cache (e.g., Redis with ciphertext values and TTL under five minutes) may be introduced only if the threat model accepts transient plaintext in memory.
+- **Refresh Storms**: Platform tokens often share fixed expiration windows (e.g., 60 days from issuance). Without jitter, thousands of tokens expire at the same moment, creating a thundering herd against both the Token Store and the social platforms' token endpoints. `scheduler_service` must stagger refresh jobs with randomized delays.
+- **Key Rotation at Scale**: Rotating the encryption root key requires re-encrypting existing records. The `encVersion` field supports lazy migration: decrypt with the old key on read, re-encrypt with the new key on the next write, and run a background batch job for cold records that are not accessed frequently.
+- **Connection Pool Sizing**: The MongoDB driver connection pool used by the Token Store must be sized independently from other services because `platform_api_clients` bursts connections during parallel publish waves. Monitor `waitingQueueSize` and adjust `minPoolSize` / `maxPoolSize` accordingly.
