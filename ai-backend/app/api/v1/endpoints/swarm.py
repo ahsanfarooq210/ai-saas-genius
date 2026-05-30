@@ -1,10 +1,12 @@
 import asyncio
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import SwarmGraphServiceDep
 from app.schemas.swarm import (
     SwarmCheckpointResponse,
+    SwarmGraphListResponse,
+    SwarmGraphMermaidResponse,
     SwarmResumeRequest,
     SwarmRunRequest,
     SwarmRunResponse,
@@ -40,3 +42,30 @@ async def get_swarm_checkpoint(
 ) -> SwarmCheckpointResponse:
     snapshot = await asyncio.to_thread(service.get_checkpoint, thread_id)
     return SwarmCheckpointResponse.model_validate(snapshot)
+
+
+@router.get("/graphs", response_model=SwarmGraphListResponse)
+async def list_swarm_graphs(
+    service: SwarmGraphServiceDep,
+) -> SwarmGraphListResponse:
+    graphs = await asyncio.to_thread(service.list_graphs)
+    return SwarmGraphListResponse(graphs=graphs)
+
+
+@router.get("/graphs/{graph_id}/mermaid", response_model=SwarmGraphMermaidResponse)
+async def get_swarm_graph_mermaid(
+    graph_id: str,
+    service: SwarmGraphServiceDep,
+    xray: bool = Query(
+        False,
+        description="Expand nested sub-graphs in the diagram (supervisor graph only)",
+    ),
+) -> SwarmGraphMermaidResponse:
+    try:
+        result = await asyncio.to_thread(service.get_graph_mermaid, graph_id, xray=xray)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown graph_id: {graph_id}",
+        ) from None
+    return SwarmGraphMermaidResponse.model_validate(result)

@@ -1,5 +1,10 @@
 from typing import Any
 
+from app.agent.graph_mermaid import (
+    UnknownSwarmGraphError,
+    list_swarm_graphs,
+    render_swarm_graph_mermaid,
+)
 from app.agent.run import GraphBuilder, build_checkpoint_payload, swarm_config
 from app.agent.state.schema import GlobalSwarmState
 
@@ -45,3 +50,13 @@ class SwarmGraphService:
     def get_checkpoint(self, thread_id: str) -> dict[str, Any]:
         snapshot = self._graph.get_state(swarm_config(thread_id))
         return build_checkpoint_payload(thread_id, snapshot)
+
+    def list_graphs(self) -> list[dict[str, str | bool]]:
+        return list_swarm_graphs()
+
+    def get_graph_mermaid(self, graph_id: str, *, xray: bool = False) -> dict[str, Any]:
+        try:
+            mermaid = render_swarm_graph_mermaid(graph_id, xray=xray)
+        except UnknownSwarmGraphError as exc:
+            raise ValueError(str(exc)) from exc
+        return {"graph_id": graph_id, "mermaid": mermaid, "xray": xray}

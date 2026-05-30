@@ -1,6 +1,7 @@
 """Architect sub-graph: draft → complexity → parallel diagrams → reduce."""
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from app.agent.state.schema import GlobalSwarmState
 from app.agent.subagents.comlexity_analyzer import ComplexityAnalyzer
@@ -15,7 +16,7 @@ _complexity_analyzer = ComplexityAnalyzer()
 _diagram_generator = DiagramGenerator()
 
 
-def build_architect_graph():
+def build_architect_graph() -> CompiledStateGraph[GlobalSwarmState]:
     builder = StateGraph(GlobalSwarmState)
 
     builder.add_node(

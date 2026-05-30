@@ -12,6 +12,28 @@ class SwarmResumeRequest(BaseModel):
     thread_id: str = Field(..., min_length=1)
 
 
+class SwarmGraphInfo(BaseModel):
+    graph_id: str
+    name: str
+    description: str
+    supports_xray: bool = Field(
+        description="When true, GET mermaid accepts xray=true to expand nested sub-graphs",
+    )
+
+
+class SwarmGraphListResponse(BaseModel):
+    graphs: list[SwarmGraphInfo] = Field(default_factory=list)
+
+
+class SwarmGraphMermaidResponse(BaseModel):
+    graph_id: str
+    mermaid: str = Field(description="Mermaid flowchart syntax for the LangGraph topology")
+    xray: bool = Field(
+        default=False,
+        description="Whether nested sub-graphs were expanded (supervisor graph only)",
+    )
+
+
 class DiagramCheckpointItem(BaseModel):
     diagram_type: str
     component_slug: str = ""

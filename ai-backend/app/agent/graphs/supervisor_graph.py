@@ -2,6 +2,7 @@
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from app.agent.graphs.architect_graph import architect_graph
 from app.agent.graphs.doc_generator_graph import doc_generator_graph
@@ -14,7 +15,7 @@ from app.agent.subagents.supervisor_router import supervisor_node, supervisor_ro
 class SupervisorGraph:
     """Parent graph — sub-graphs register as opaque nodes; owns the checkpointer."""
 
-    def build(self):
+    def build(self) -> CompiledStateGraph[GlobalSwarmState]:
         builder = StateGraph(GlobalSwarmState)
 
         builder.add_node("supervisor_node", supervisor_node)
