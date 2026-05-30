@@ -1,11 +1,11 @@
-"""Phase 6 reducer experiment: plain list overwrites, reducer appends."""
+"""Phase 6 reducer experiment plus architect sub-graph state hints."""
 
-from typing import Annotated, TypedDict, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, TypedDict, cast, get_args, get_origin, get_type_hints
 import operator
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.state.schema import DiagramEntry, GlobalSwarmState
+from app.agent.state.schema import ArchitectGraphState, DiagramEntry, GlobalSwarmState
 
 
 class PlainListState(TypedDict):
@@ -26,15 +26,15 @@ def _make_entry(diagram_type: str) -> DiagramEntry:
     }
 
 
-def _first_writer(_: TypedDict) -> dict[str, list[DiagramEntry]]:
+def _first_writer(state: object) -> dict[str, list[DiagramEntry]]:
     return {"generated_diagrams": [_make_entry("overview")]}
 
 
-def _second_writer(_: TypedDict) -> dict[str, list[DiagramEntry]]:
+def _second_writer(state: object) -> dict[str, list[DiagramEntry]]:
     return {"generated_diagrams": [_make_entry("auth-flow")]}
 
 
-def _run_graph(state_schema: type[TypedDict]) -> dict:
+def _run_graph(state_schema: Any) -> dict[str, Any]:
     builder = StateGraph(state_schema)
     builder.add_node("first_writer", _first_writer)
     builder.add_node("second_writer", _second_writer)
@@ -42,7 +42,7 @@ def _run_graph(state_schema: type[TypedDict]) -> dict:
     builder.add_edge("first_writer", "second_writer")
     builder.add_edge("second_writer", END)
     graph = builder.compile()
-    return graph.invoke({"generated_diagrams": []})
+    return cast(dict[str, Any], graph.invoke(cast(Any, {"generated_diagrams": []})))
 
 
 def test_plain_list_keeps_only_last_writer() -> None:
@@ -66,8 +66,14 @@ def test_reducer_appends_both_entries() -> None:
     ]
 
 
-def test_global_swarm_state_uses_reducer_for_generated_diagrams() -> None:
+def test_global_swarm_state_keeps_plain_generated_diagrams() -> None:
     hints = get_type_hints(GlobalSwarmState, include_extras=True)
+
+    assert hints["generated_diagrams"] == list[DiagramEntry]
+
+
+def test_architect_graph_state_uses_reducer_for_generated_diagrams() -> None:
+    hints = get_type_hints(ArchitectGraphState, include_extras=True)
 
     generated_diagrams = hints["generated_diagrams"]
 

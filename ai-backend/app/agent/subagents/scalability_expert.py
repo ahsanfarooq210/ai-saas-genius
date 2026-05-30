@@ -1,8 +1,8 @@
 from app.agent.state.schema import GlobalSwarmState
 from app.agent.subagents.llm_reply import assistant_text
 from app.agent.subagents.reviewer_common import (
+    append_debate_log,
     build_review_prompt,
-    make_debate_log_entry,
     parse_review_status,
 )
 from app.core.llm import get_chat_llm
@@ -52,7 +52,11 @@ def scalability_node(state: GlobalSwarmState) -> dict:
 
     return {
         "scalability_feedback": feedback,
-        "debate_logs": [
-            make_debate_log_entry("scalability", feedback, status, iteration)
-        ],
+        "debate_logs": append_debate_log(
+            state,
+            agent="scalability",
+            feedback=feedback,
+            status=status,
+            iteration=iteration,
+        ),
     }

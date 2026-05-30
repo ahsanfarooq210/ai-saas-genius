@@ -1,9 +1,9 @@
 from langgraph.types import Send
 
-from app.agent.state.schema import GlobalSwarmState, DiagramWorkerState
+from app.agent.state.schema import ArchitectGraphState, DiagramWorkerState
 
 
-def diagram_planner_node(state: GlobalSwarmState) -> list[Send]:
+def diagram_planner_node(state: ArchitectGraphState) -> list[Send]:
     """
     Returns list[Send] — NOT a state dict.
     Each Send triggers one isolated diagram_generator_node invocation.

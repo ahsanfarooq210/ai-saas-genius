@@ -3,7 +3,8 @@
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from app.agent.state.schema import GlobalSwarmState
+from app.agent.state.schema import ArchitectGraphState
+from app.agent.subagents.artifact_reset import prepare_architect_artifacts_node
 from app.agent.subagents.comlexity_analyzer import ComplexityAnalyzer
 from app.agent.subagents.diagram_generator_worker import DiagramGenerator
 from app.agent.subagents.diagram_planner import diagram_planner_node
@@ -16,9 +17,13 @@ _complexity_analyzer = ComplexityAnalyzer()
 _diagram_generator = DiagramGenerator()
 
 
-def build_architect_graph() -> CompiledStateGraph[GlobalSwarmState]:
-    builder = StateGraph(GlobalSwarmState)
+def build_architect_graph() -> CompiledStateGraph[ArchitectGraphState]:
+    builder = StateGraph(ArchitectGraphState)
 
+    builder.add_node(
+        "prepare_architect_artifacts_node",
+        prepare_architect_artifacts_node,
+    )
     builder.add_node(
         "draft_architecture_node",
         _lead_architect.draft_architecture_node,
@@ -33,7 +38,8 @@ def build_architect_graph() -> CompiledStateGraph[GlobalSwarmState]:
     )
     builder.add_node("reduce_diagrams_node", reduce_diagrams_node)
 
-    builder.add_edge(START, "draft_architecture_node")
+    builder.add_edge(START, "prepare_architect_artifacts_node")
+    builder.add_edge("prepare_architect_artifacts_node", "draft_architecture_node")
     builder.add_edge("draft_architecture_node", "score_complexity_node")
 
     # score_complexity_node → diagram_planner_node → [Send × N]

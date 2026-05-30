@@ -1,4 +1,4 @@
-from app.agent.state.schema import GlobalSwarmState
+from app.agent.state.schema import ArchitectGraphState
 from app.agent.subagents._schema import ComplexityOutput
 from app.core.llm import get_chat_llm
 
@@ -35,7 +35,7 @@ Cross-cutting diagram vocabulary (use only these):
 
 
 class ComplexityAnalyzer:
-    def score_complexity_node(self, state: GlobalSwarmState) -> dict:
+    def score_complexity_node(self, state: ArchitectGraphState) -> dict:
         print(f"\n[complexity_analyzer] scoring {len(state['component_list'])} components")
 
         prompt = (

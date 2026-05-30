@@ -63,3 +63,17 @@ def make_debate_log_entry(
         "status": status,
         "iteration": iteration,
     }
+
+
+def append_debate_log(
+    state: GlobalSwarmState,
+    *,
+    agent: str,
+    feedback: str,
+    status: str,
+    iteration: int,
+) -> list[DebateLogEntry]:
+    return [
+        *(state.get("debate_logs") or []),
+        make_debate_log_entry(agent, feedback, status, iteration),
+    ]

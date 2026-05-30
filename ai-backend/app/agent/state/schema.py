@@ -16,15 +16,15 @@ class GlobalSwarmState(TypedDict):
     diagram_plan: list[str]  # ["overview", "component-api-gateway", "auth-flow", ...]
     doc_plan: list[str]  # ["overview.md", "api-gateway.md", "auth-service.md", ...]
     deep_dive_notes: str  # empty until deep_dive_node runs
-    generated_diagrams: Annotated[list["DiagramEntry"], operator.add]
+    generated_diagrams: list["DiagramEntry"]
     thread_id: str  # checkpoint thread; used for artifact paths
-    generated_docs: Annotated[list["DocEntry"], operator.add]
+    generated_docs: list["DocEntry"]
     docs_complete: bool  # set True when doc sub-graph finishes (Phase 9 supervisor gate)
     iteration_count: int  # supervisor increments every lap; hard limit = 5
     next_agent: str  # set by supervisor for visibility; routing uses return value
     scalability_feedback: str  # "" until reviewed; stub sets "STATUS: APPROVED"
     security_feedback: str  # "" until reviewed; stub sets "STATUS: APPROVED"
-    debate_logs: Annotated[list["DebateLogEntry"], operator.add]
+    debate_logs: list["DebateLogEntry"]
 
 
 class DebateLogEntry(TypedDict):
@@ -39,6 +39,27 @@ class ArchitectInternalState(TypedDict):
     linter_errors: list[str]  # feedback between linter and generator
     internal_loop_count: int  # lint-fix retry counter; hard limit = 3
     current_diagram_type: str  # which diagram is being worked on right now
+
+
+class ArchitectGraphState(TypedDict):
+    task_requirement: str
+    architecture_draft: str
+    architecture_json: dict
+    component_list: list[str]
+    current_architecture_mermaid: str
+    complexity_score: int
+    diagram_plan: list[str]
+    doc_plan: list[str]
+    deep_dive_notes: str
+    generated_diagrams: Annotated[list["DiagramEntry"], operator.add]
+    thread_id: str
+    generated_docs: list["DocEntry"]
+    docs_complete: bool
+    iteration_count: int
+    next_agent: str
+    scalability_feedback: str
+    security_feedback: str
+    debate_logs: list["DebateLogEntry"]
 
 
 class DiagramEntry(TypedDict):
@@ -68,6 +89,27 @@ class DocEntry(TypedDict):
     component_slug: str  # pairs with DiagramEntry; "" for overview / ADR / runbook
     content: str
     path: str  # reports/{thread_id}/{filename}
+
+
+class DocGraphState(TypedDict):
+    task_requirement: str
+    architecture_draft: str
+    architecture_json: dict
+    component_list: list[str]
+    current_architecture_mermaid: str
+    complexity_score: int
+    diagram_plan: list[str]
+    doc_plan: list[str]
+    deep_dive_notes: str
+    generated_diagrams: list[DiagramEntry]
+    thread_id: str
+    generated_docs: Annotated[list["DocEntry"], operator.add]
+    docs_complete: bool
+    iteration_count: int
+    next_agent: str
+    scalability_feedback: str
+    security_feedback: str
+    debate_logs: list["DebateLogEntry"]
 
 
 class DocWorkerState(TypedDict):

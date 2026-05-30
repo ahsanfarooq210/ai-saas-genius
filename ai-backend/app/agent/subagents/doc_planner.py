@@ -1,6 +1,6 @@
 from langgraph.types import Send
 
-from app.agent.state.schema import DocWorkerState, GlobalSwarmState
+from app.agent.state.schema import DocGraphState, DocWorkerState
 
 
 def slug_from_doc_filename(filename: str) -> str:
@@ -15,7 +15,7 @@ def slug_from_doc_filename(filename: str) -> str:
     return name
 
 
-def doc_planner_node(state: GlobalSwarmState) -> list[Send]:
+def doc_planner_node(state: DocGraphState) -> list[Send]:
     """
     Returns list[Send] — one per doc_plan entry.
     Each Send carries an isolated DocWorkerState with generated_diagrams for pairing.

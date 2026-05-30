@@ -1,4 +1,4 @@
-from app.agent.state.schema import GlobalSwarmState
+from app.agent.state.schema import ArchitectGraphState
 from app.agent.subagents._schema import ArchitectureOutput
 from app.core.llm import get_chat_llm
 
@@ -21,7 +21,7 @@ component in component_list as a node and dependency edges between them.
 """
 
 
-def _rejection_context(state: GlobalSwarmState) -> str:
+def _rejection_context(state: ArchitectGraphState) -> str:
     parts: list[str] = []
     scalability = state.get("scalability_feedback", "")
     security = state.get("security_feedback", "")
@@ -38,7 +38,7 @@ def _rejection_context(state: GlobalSwarmState) -> str:
 
 
 class LeadArchitect:
-    def draft_architecture_node(self, state: GlobalSwarmState) -> dict:
+    def draft_architecture_node(self, state: ArchitectGraphState) -> dict:
         print(
             f"\n[lead_architect] drafting architecture for: {state['task_requirement']!r}"
         )

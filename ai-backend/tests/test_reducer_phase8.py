@@ -1,14 +1,20 @@
-"""Phase 8: generated_docs reducer and doc filename slug pairing."""
+"""Phase 8: doc sub-graph reducers and doc filename slug pairing."""
 
 from typing import Annotated, get_args, get_origin, get_type_hints
 import operator
 
-from app.agent.state.schema import DocEntry, GlobalSwarmState
+from app.agent.state.schema import DocEntry, DocGraphState, GlobalSwarmState
 from app.agent.subagents.doc_planner import slug_from_doc_filename
 
 
-def test_global_swarm_state_uses_reducer_for_generated_docs() -> None:
+def test_global_swarm_state_keeps_plain_generated_docs() -> None:
     hints = get_type_hints(GlobalSwarmState, include_extras=True)
+
+    assert hints["generated_docs"] == list[DocEntry]
+
+
+def test_doc_graph_state_uses_reducer_for_generated_docs() -> None:
+    hints = get_type_hints(DocGraphState, include_extras=True)
     generated_docs = hints["generated_docs"]
 
     assert get_origin(generated_docs) is Annotated

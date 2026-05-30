@@ -1,9 +1,13 @@
-from langgraph.types import Overwrite
+from typing import Any
 
-from app.agent.state.schema import GlobalSwarmState
+import langgraph.types as langgraph_types
+
+from app.agent.state.schema import DocGraphState
+
+_overwrite = getattr(langgraph_types, "Overwrite")
 
 
-def reduce_docs_node(state: GlobalSwarmState) -> dict:
+def reduce_docs_node(state: DocGraphState) -> dict[str, Any]:
     """
     Runs after ALL parallel document_generator_node workers complete.
     Sets docs_complete — explicit signal for Phase 9 supervisor routing.
@@ -16,6 +20,6 @@ def reduce_docs_node(state: GlobalSwarmState) -> dict:
         print(f"  ✓ {doc['title']:<45} slug={slug}")
 
     return {
-        "generated_docs": Overwrite(all_docs),
+        "generated_docs": _overwrite(all_docs),
         "docs_complete": True,
     }

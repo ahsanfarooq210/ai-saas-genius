@@ -1,10 +1,13 @@
 """Phase 9 supervisor routing — unit tests only (no LLM)."""
 
+from typing import Any, cast
+
+from app.agent.state.schema import GlobalSwarmState
 from app.agent.subagents.supervisor_router import MAX_ITERATIONS, _route, supervisor_node
 
 
-def _base_state(**overrides) -> dict:
-    state = {
+def _base_state(**overrides: Any) -> GlobalSwarmState:
+    state: dict[str, Any] = {
         "task_requirement": "Design a URL shortener",
         "architecture_draft": "",
         "architecture_json": {},
@@ -22,9 +25,10 @@ def _base_state(**overrides) -> dict:
         "next_agent": "",
         "scalability_feedback": "",
         "security_feedback": "",
+        "debate_logs": [],
     }
     state.update(overrides)
-    return state
+    return cast(GlobalSwarmState, state)
 
 
 def test_route_empty_component_list_to_architect() -> None:

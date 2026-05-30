@@ -1,9 +1,13 @@
-from langgraph.types import Overwrite
+from typing import Any
 
-from app.agent.state.schema import DiagramEntry, GlobalSwarmState
+import langgraph.types as langgraph_types
+
+from app.agent.state.schema import ArchitectGraphState, DiagramEntry
+
+_overwrite = getattr(langgraph_types, "Overwrite")
 
 
-def reduce_diagrams_node(state: GlobalSwarmState) -> dict:
+def reduce_diagrams_node(state: ArchitectGraphState) -> dict[str, Any]:
     """
     Runs after ALL parallel diagram_generator_node workers complete.
     LangGraph starts this node only when every Send worker has returned.
@@ -24,4 +28,4 @@ def reduce_diagrams_node(state: GlobalSwarmState) -> dict:
         )
 
     # Overwrite replaces the accumulated list; operator.add would duplicate entries.
-    return {"generated_diagrams": Overwrite(valid_diagrams)}
+    return {"generated_diagrams": _overwrite(valid_diagrams)}
