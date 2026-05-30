@@ -1,9 +1,15 @@
 # Autonomous System Architecture Swarm — LangGraph Implementation Guide
 
-> **Purpose**: This document is the single source of truth for implementing the LangGraph multi-agent swarm. It covers graph topology, state design, agent responsibilities, tool contracts, storage strategy, and implementation constraints. A coding agent must read this entire document before writing any code.
+> **Purpose**: Target architecture and implementation guide for the LangGraph multi-agent swarm.
 >
-> **Important**: This is the target architecture, not a guarantee of current live behavior. Before changing runtime code, compare this plan with the files that actually wire the running system:
-> `app/main.py`, `app/services/swarm_graph_service.py`, `app/agent/run.py`, `app/agent/graphs/`, and `app/agent/state/schema.py`.
+> **Live behavior:** This is a **roadmap / target design**, not guaranteed to match every line of code. For what runs today, read first:
+> - [current/how-the-swarm-graph-works.md](../current/how-the-swarm-graph-works.md)
+> - [flows/state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md)
+> - [current/project-state.md](../current/project-state.md)
+>
+> **State merge (implemented 2026-05-30):** Reducers for `generated_diagrams` / `generated_docs` belong on **subgraph** state (`ArchitectGraphState`, `DocGraphState`), not on parent `GlobalSwarmState`. See [changes/2026-05-30-subgraph-artifact-merge-fix.md](../changes/2026-05-30-subgraph-artifact-merge-fix.md). Sections below that still show `operator.add` on `GlobalSwarmState` are **outdated** until updated to match subgraph-local reducers.
+>
+> Before changing runtime code, compare with: `app/main.py`, `app/services/swarm_graph_service.py`, `app/agent/graphs/`, `app/agent/state/schema.py`.
 
 ---
 

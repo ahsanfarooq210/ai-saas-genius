@@ -1,203 +1,172 @@
-# Current Project State
+# Current project state
 
-This document explains the live backend as it exists in code today. It is meant to be readable by both humans and AI agents.
+Live backend behavior as implemented in code. If this file disagrees with the repo, **trust the code** and update this document.
 
-If this file and the code ever disagree, trust the code and update this document.
+**New readers:** start with [how-the-swarm-graph-works.md](how-the-swarm-graph-works.md), then [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md).
 
-## What This Service Does
+---
 
-This repository is a FastAPI backend for a LangGraph-based architecture swarm. A client submits a system-design requirement, the backend runs a graph, and the API returns the resulting swarm state.
+## What this service does
 
-Today, the implementation is still an early-phase swarm. It already has:
+FastAPI backend for a LangGraph **architecture swarm**. A client submits a design requirement; the graph returns architecture JSON, Mermaid diagrams, Markdown docs, and optional reviewer feedback. Runs are checkpointed by `thread_id`.
 
-- FastAPI app wiring
-- a compile-once graph service
-- checkpointed graph invocation by `thread_id`
-- architecture drafting
-- complexity analysis
-- parallel diagram generation via LangGraph `Send` (Phases 6–7)
-- parallel document generation via LangGraph `Send` (Phase 8)
-- reducer-backed `generated_diagrams` and `generated_docs` collections
-- Mermaid lint-and-retry in diagram workers
-- Markdown docs written to `output/reports/{thread_id}/` via `FileStore`
+---
 
-It does not yet have the full supervisor loop or reviewer loop wired into the live graph. See [swarm-graph-overview.md](../flows/swarm-graph-overview.md), [phase-6-flow.md](../flows/phase-6-flow.md), [phase-7-flow.md](../flows/phase-7-flow.md), and [phase-8-flow.md](../flows/phase-8-flow.md).
+## Live entry points
 
-## Live Entry Points
+| File | Role |
+|------|------|
+| `app/main.py` | App lifespan, service registration |
+| `app/api/v1/router.py` | Route registration |
+| `app/api/v1/endpoints/swarm.py` | Swarm HTTP handlers |
+| `app/services/swarm_graph_service.py` | Graph compile-once, invoke/resume |
+| `app/agent/run.py` | Checkpoint payload shaping |
+| `app/agent/graphs/` | Parent + subgraph topology |
+| `app/agent/state/schema.py` | All state `TypedDict`s |
 
-Inspect these files first when you need the current truth:
+---
 
-- `app/main.py`
-- `app/api/v1/router.py`
-- `app/api/v1/endpoints/swarm.py`
-- `app/services/swarm_graph_service.py`
-- `app/agent/run.py`
-- `app/agent/graphs/`
-- `app/agent/state/schema.py`
+## Runtime flow
 
-## Runtime Flow
+1. `POST /api/v1/swarm/run` or `resume` in `swarm.py`
+2. `SwarmGraphService` invokes `supervisor_graph` with `_empty_swarm_state`
+3. Graph runs until `END` or iteration cap
+4. Response validated as `SwarmRunResponse` / `SwarmCheckpointResponse`
 
-The current request flow is:
+---
 
-1. FastAPI receives a request in `app/api/v1/endpoints/swarm.py`
-2. The route resolves `SwarmGraphService` from `app.state`
-3. The route offloads sync graph execution with `asyncio.to_thread(...)`
-4. `SwarmGraphService` invokes the compiled LangGraph using `thread_id`
-5. The graph returns a state dict
-6. The API validates that dict through `SwarmRunResponse` or `SwarmCheckpointResponse`
+## Live graph topology
 
-## Live Graph Topology
-
-The live graph is simpler than the target architecture plan.
-
-### Parent graph
-
-`app/agent/graphs/supervisor_graph.py`
+### Parent graph (`supervisor_graph.py`)
 
 ```text
-START -> supervisor_node -> [conditional] -> architect_graph | doc_generator_graph
+START → supervisor_node → [conditional] → architect_graph | doc_generator_graph
                                         | scalability_node | security_node | END
-architect_graph      -> supervisor_node
-doc_generator_graph  -> supervisor_node
-scalability_node     -> supervisor_node
-security_node        -> supervisor_node
+(each branch) → supervisor_node
 ```
 
-The parent graph is cyclic: `supervisor_node` routes via `app/agent/subagents/supervisor_router.py` (no LLM). Stub reviewers always approve until Phase 10. The parent owns the `MemorySaver` checkpointer.
+- Cyclic supervisor with `MemorySaver` checkpointer
+- Routing: `app/agent/subagents/supervisor_router.py` (no LLM)
+- `MAX_ITERATIONS = 5` circuit breaker in `supervisor_node`
 
-### Architect subgraph
-
-`app/agent/graphs/architect_graph.py`
+### Architect subgraph (`architect_graph.py`)
 
 ```text
-START -> draft_architecture_node -> score_complexity_node
-     -> [diagram_planner: Send × N] -> diagram_generator_node (parallel)
-     -> reduce_diagrams_node -> END
+START → prepare_architect_artifacts_node
+     → draft_architecture_node → score_complexity_node
+     → [diagram_planner: Send × N] → diagram_generator_node
+     → reduce_diagrams_node → END
 ```
 
-The architect subgraph currently performs:
-
-- `LeadArchitect.draft_architecture_node`
-- `ComplexityAnalyzer.score_complexity_node`
-- `diagram_planner_node` (conditional edge; returns `list[Send]`, not an `add_node`)
-- `DiagramGenerator.diagram_generator_node` (one invocation per plan entry)
-- `reduce_diagrams_node` (drops `syntax_error` entries; `Overwrite` on `generated_diagrams`)
-
-### Doc generator subgraph
-
-`app/agent/graphs/doc_generator_graph.py`
+### Doc subgraph (`doc_generator_graph.py`)
 
 ```text
-START -> [doc_planner: Send × M] -> document_generator_node (parallel)
-     -> reduce_docs_node -> END
+START → prepare_doc_artifacts_node
+     → [doc_planner: Send × M] → document_generator_node
+     → reduce_docs_node → END
 ```
 
-The doc subgraph:
+---
 
-- `doc_planner_node` (conditional edge from `START`; returns `list[Send]`)
-- `document_generator_node` (one invocation per `doc_plan` entry; reads `generated_diagrams` for pairing)
-- `reduce_docs_node` (sets `docs_complete: True`)
+## State model (`schema.py`)
 
-## Current State Model
+### `GlobalSwarmState` (parent)
 
-Shared graph state lives in `app/agent/state/schema.py` as `TypedDict` definitions.
+Important fields:
 
-### GlobalSwarmState
+| Field | Notes |
+|-------|--------|
+| `task_requirement` | User prompt; set at init |
+| `architecture_json`, `component_list` | From lead architect |
+| `diagram_plan`, `doc_plan` | From complexity analyzer |
+| `generated_diagrams`, `generated_docs` | **Plain lists** — replaced when subgraphs return |
+| `docs_complete` | `True` after doc reduce node |
+| `iteration_count`, `next_agent` | Supervisor |
+| `scalability_feedback`, `security_feedback` | Reviewer Markdown + status line |
+| `debate_logs` | Plain list; reviewers append via `append_debate_log` |
 
-Important live fields:
+### Subgraph-local reducers
 
-- `task_requirement`: original user request
-- `architecture_draft`: reserved legacy field, currently initialized but not meaningfully populated
-- `architecture_json`: structured architecture output
-- `component_list`: normalized component names
-- `current_architecture_mermaid`: overview Mermaid diagram
-- `complexity_score`: complexity rating from the analyzer
-- `diagram_plan`: planned diagram identifiers
-- `doc_plan`: planned document identifiers (consumed by doc sub-graph)
-- `deep_dive_notes`: reserved for future deep-dive flow
-- `thread_id`: checkpoint thread; used in artifact paths
-- `generated_diagrams`: reducer-backed list for diagram worker results
-- `generated_docs`: reducer-backed list for document worker results
-- `docs_complete`: `True` after doc sub-graph finishes
-- `iteration_count`: supervisor lap counter (cap 5)
-- `next_agent`: last routing decision written by supervisor
-- `scalability_feedback`: full Markdown scalability critique ending with `STATUS: APPROVED` or `STATUS: REJECTED`
-- `security_feedback`: full Markdown security critique ending with `STATUS: APPROVED` or `STATUS: REJECTED`
-- `debate_logs`: in-memory audit trail (`DebateLogEntry` per reviewer pass)
+| State type | Reducer field |
+|------------|----------------|
+| `ArchitectGraphState` | `generated_diagrams` → `operator.add` |
+| `DocGraphState` | `generated_docs` → `operator.add` |
 
-### Reducer-backed fields
+Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md).
 
-`generated_diagrams`, `generated_docs`, and `debate_logs` are annotated with `operator.add`. Parallel LangGraph workers must merge results instead of overwriting each other; reduce nodes use `Overwrite` where a full list replacement is required. See [phase-6-flow.md](../flows/phase-6-flow.md).
+### Artifact reset
 
-## Current API Surface
+`app/agent/subagents/artifact_reset.py` — clears artifacts at subgraph `START` before regeneration.
 
-The live API router currently exposes:
+---
 
-- `POST /api/v1/swarm/run`
-- `POST /api/v1/swarm/resume`
-- `GET /api/v1/swarm/state/{thread_id}`
-- `GET /health`
+## Live API
 
-These are described here because they are part of the current live system. If routes change, update this file with the same commit.
+| Method | Path |
+|--------|------|
+| `POST` | `/api/v1/swarm/run` |
+| `POST` | `/api/v1/swarm/resume` |
+| `GET` | `/api/v1/swarm/state/{thread_id}` |
+| `GET` | `/health` |
 
-## What Exists On Disk But Is Not Wired
+Graph introspection (Mermaid export) may exist on swarm routes — confirm in `app/api/v1/endpoints/swarm.py`.
 
-Examples of modules not in the active graph:
+---
 
-- deep dive node
-- summarize node
-- `route_after_complexity` in `app/agent/router/supervisor_router.py` (rehearsal only)
+## Artifacts
 
-Do not assume a module is active just because the file exists.
+| Type | State | Disk |
+|------|-------|------|
+| Diagrams | `DiagramEntry` in `generated_diagrams` | `FileStore.save_diagram` exists; workers do not call it yet |
+| Docs | `DocEntry` in `generated_docs` | `output/reports/{thread_id}/*.md` |
 
-## Current Architectural Boundaries
+---
 
-### API layer
+## Wired vs not wired
 
-The API layer should stay thin:
+**Wired:**
 
-- request validation
-- dependency resolution
-- thread offloading
-- response validation
+- Supervisor loop with architect, docs, scalability, security
+- Parallel diagram and doc generation via `Send`
+- LLM reviewers with `REJECTED` → architect rerun
+- Subgraph artifact reset and parent plain-list merge (2026-05-30)
 
-### Service layer
+**On disk but not in active graph:**
 
-`SwarmGraphService` owns:
+- `deep_dive.py`, `summarize.py`
+- `app/agent/router/supervisor_router.py` (rehearsal router only)
 
-- graph compilation lifetime
-- run and resume entry points
-- checkpoint lookup
-- initial empty state creation
+**Roadmap / not production-complete:**
 
-### Graph layer
+- Persistent debate logs (Postgres)
+- Diagram files on disk from workers
+- Full auth API (README may mention scaffolded auth not wired in router)
 
-Graph files in `app/agent/graphs/` should contain topology and wiring, not prompts.
+---
 
-### Subagent layer
+## Layer boundaries
 
-Files in `app/agent/subagents/` should contain:
+| Layer | Should contain |
+|-------|----------------|
+| API | Validation, `asyncio.to_thread`, response models |
+| Service | Graph lifetime, empty state, checkpoint |
+| `graphs/` | Topology only |
+| `subagents/` | Prompts, node logic, structured output |
+| `state/schema.py` | TypedDict contracts |
 
-- prompts
-- structured output handling
-- node implementation logic
-- output normalization
+---
 
-## Known Gaps
+## Tests worth running after graph changes
 
-The most important current gaps are:
+```bash
+pytest tests/test_subgraph_artifact_accumulation.py \
+       tests/test_reducer_phase6.py \
+       tests/test_reducer_phase8.py \
+       tests/test_supervisor_routing_phase9.py -q
+```
 
-- `debate_logs` are in-memory only (Phase 11 persists to Postgres)
-- diagram paths are logical keys only (no file store writes yet)
-- some legacy scaffolded auth references still exist in README-level documentation
+---
 
-## How To Update This Document
+## How to update this file
 
-Update this file when any of these change:
-
-- active routes
-- graph topology
-- shared state fields
-- which modules are wired versus only present on disk
-
-Keep the writing direct. Prefer short sections and concrete file references over long narrative text.
+Update when routes, graph edges, state fields, or merge semantics change. Link to [changes/](../changes/) for behavioral changelogs.

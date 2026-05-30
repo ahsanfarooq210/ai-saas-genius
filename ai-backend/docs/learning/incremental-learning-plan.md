@@ -2,6 +2,8 @@
 
 > **Purpose**: This document is a **pedagogical build sequence**. You implement the **same ultimate product** as [`Plan.md`](../architecture/plan.md): a multi-agent **swarm** of **subagents** that collaborates to produce **application / system architecture** — for **each architecture component**, **one Mermaid diagram** and **one Markdown doc**, plus an **overview** pair and optional cross-cutting artifacts, then **scalability** and **security** review loops.  
 > **Do not** replace [`Plan.md`](../architecture/plan.md); that file remains the **full target architecture**. This file tells you **what to build in which order** so each step teaches one LangGraph idea at a time.
+>
+> **Live code may differ:** For the running system, read [how-the-swarm-graph-works.md](../current/how-the-swarm-graph-works.md) and [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md). Reducers are on **subgraph** state, not parent `GlobalSwarmState`.
 
 ---
 
@@ -383,8 +385,9 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### Learning goals
 
-- Add `generated_diagrams: Annotated[list[DiagramEntry], operator.add]` exactly as [`Plan.md` §3.1](../architecture/plan.md) describes.
-- Prove **why** plain `list` breaks parallel updates (write a **fake** parallel invocation in tests if needed).
+- Add `generated_diagrams: Annotated[list[DiagramEntry], operator.add]` on **`ArchitectGraphState`** (subgraph), not on parent `GlobalSwarmState`. See [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md).
+- Prove **why** plain `list` breaks parallel updates inside a subgraph (write a **fake** parallel invocation in tests if needed).
+- Prove **why** parent `GlobalSwarmState` must use **plain lists** when compiled subgraphs return full artifact snapshots (regression: `tests/test_subgraph_artifact_accumulation.py`).
 
 ### Use-case slice (still sequential)
 
@@ -430,7 +433,8 @@ Even in v0, **name components clearly** (e.g. “API Gateway”, “Auth Service
 
 ### Pitfalls
 
-- Skipping `operator.add` — you will lose diagrams silently.
+- Skipping `operator.add` on **subgraph** worker fields — you will lose diagrams silently.
+- Putting `operator.add` on **parent** `GlobalSwarmState` artifact fields — compiled subgraphs will **duplicate** lists on return.
 - Returning `Send` targets that don’t match **registered node names** exactly.
 
 ---

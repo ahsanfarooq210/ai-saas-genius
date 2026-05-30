@@ -2,7 +2,7 @@
 
 Date: 2026-05-28
 
-> **Update:** The architect graph now wires planner, workers, and reduce. See [phase-6-flow.md](../flows/phase-6-flow.md) and [phase-7-flow.md](../flows/phase-7-flow.md). Sections below that say “not fully active in the runtime graph” are historical.
+> **Update:** The architect graph now wires planner, workers, and reduce. See [phase-7-flow.md](../flows/phase-7-flow.md) and [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md). Reducers now live on `ArchitectGraphState`, not parent `GlobalSwarmState` — see [2026-05-30-subgraph-artifact-merge-fix.md](2026-05-30-subgraph-artifact-merge-fix.md). Sections below that say “not fully active in the runtime graph” are historical.
 
 ## Why This Change Matters
 

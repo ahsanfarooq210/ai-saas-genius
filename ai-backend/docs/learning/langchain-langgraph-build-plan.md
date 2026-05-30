@@ -1,5 +1,7 @@
 # LangGraph Architecture Swarm — Definitive Progressive Build Plan
 
+> **Live system:** For current graph behavior and state merge rules, read [how-the-swarm-graph-works.md](../current/how-the-swarm-graph-works.md) and [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md). This build plan is educational; some state examples below predate subgraph-local reducers.
+>
 > **Goal**: Build an autonomous multi-agent swarm where a user submits a system design
 > requirement (e.g. "Design a globally distributed URL shortener") and the swarm produces:
 >

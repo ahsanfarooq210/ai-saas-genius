@@ -232,11 +232,13 @@ When adding graph fan-out, reducers, or state fields, add tests around:
 When implementing `Send`-based fan-out:
 
 - give workers isolated worker-state types
-- annotate reducer fields with `operator.add`
-- make each worker return only its artifact payload
-- test both overwrite failure mode and reducer success mode
+- annotate reducer fields with `operator.add` on **subgraph** state (`ArchitectGraphState`, `DocGraphState`), not on parent `GlobalSwarmState` artifact fields
+- keep parent `GlobalSwarmState.generated_diagrams`, `generated_docs`, and `debate_logs` as plain lists so compiled subgraph outputs replace instead of append
+- make each worker return only its artifact payload (one-item list slice)
+- use `prepare_*_artifacts_node` at subgraph START when a generation phase may rerun
+- test subgraph boundary merge with `tests/test_subgraph_artifact_accumulation.py` and reducer hints in `tests/test_reducer_phase6.py` / `test_reducer_phase8.py`
 
-The existing reducer test file is the pattern to follow.
+See `docs/flows/state-merge-and-artifacts.md`.
 
 ### Add New API Endpoints
 
