@@ -6,3 +6,4 @@ class Base(DeclarativeBase):
 
 
 import app.models.user  # noqa: F401, E402
+import app.models.swarm  # noqa: F401, E402

@@ -1,6 +1,7 @@
 """Parent topology. Phase 9: cyclic supervisor with conditional routing."""
 
-from langgraph.checkpoint.memory import MemorySaver
+from typing import Any
+
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -15,7 +16,11 @@ from app.agent.subagents.supervisor_router import supervisor_node, supervisor_ro
 class SupervisorGraph:
     """Parent graph — sub-graphs register as opaque nodes; owns the checkpointer."""
 
-    def build(self) -> CompiledStateGraph[GlobalSwarmState]:
+    def build(
+        self,
+        *,
+        checkpointer: Any | None = None,
+    ) -> CompiledStateGraph[GlobalSwarmState]:
         builder = StateGraph(GlobalSwarmState)
 
         builder.add_node("supervisor_node", supervisor_node)
@@ -43,7 +48,13 @@ class SupervisorGraph:
         builder.add_edge("scalability_node", "supervisor_node")
         builder.add_edge("security_node", "supervisor_node")
 
-        return builder.compile(checkpointer=MemorySaver())
+        return builder.compile(checkpointer=checkpointer)
 
 
+def build_supervisor_graph(checkpointer: Any) -> CompiledStateGraph[GlobalSwarmState]:
+    """Compile the runtime parent graph with the app-managed checkpointer."""
+    return SupervisorGraph().build(checkpointer=checkpointer)
+
+
+# Checkpoint-free graph for topology rendering and tests that do not execute runtime state.
 supervisor_graph = SupervisorGraph().build()

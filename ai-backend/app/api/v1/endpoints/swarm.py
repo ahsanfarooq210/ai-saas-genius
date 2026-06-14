@@ -1,8 +1,8 @@
-import asyncio
-
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
 
 from app.api.deps import SwarmGraphServiceDep
+from app.db.session import get_db
 from app.schemas.swarm import (
     SwarmCheckpointResponse,
     SwarmGraphListResponse,
@@ -19,10 +19,9 @@ router = APIRouter(prefix="/swarm")
 async def run_swarm_graph(
     body: SwarmRunRequest,
     service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
 ) -> SwarmRunResponse:
-    result = await asyncio.to_thread(
-        service.run, body.task_requirement, body.thread_id
-    )
+    result = await service.run(body.task_requirement, body.thread_id, db=db)
     return SwarmRunResponse.model_validate(result)
 
 
@@ -30,8 +29,9 @@ async def run_swarm_graph(
 async def resume_swarm_graph(
     body: SwarmResumeRequest,
     service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
 ) -> SwarmRunResponse:
-    result = await asyncio.to_thread(service.resume, body.thread_id)
+    result = await service.resume(body.thread_id, db=db)
     return SwarmRunResponse.model_validate(result)
 
 
@@ -40,7 +40,7 @@ async def get_swarm_checkpoint(
     thread_id: str,
     service: SwarmGraphServiceDep,
 ) -> SwarmCheckpointResponse:
-    snapshot = await asyncio.to_thread(service.get_checkpoint, thread_id)
+    snapshot = await service.get_checkpoint(thread_id)
     return SwarmCheckpointResponse.model_validate(snapshot)
 
 
@@ -48,7 +48,7 @@ async def get_swarm_checkpoint(
 async def list_swarm_graphs(
     service: SwarmGraphServiceDep,
 ) -> SwarmGraphListResponse:
-    graphs = await asyncio.to_thread(service.list_graphs)
+    graphs = service.list_graphs()
     return SwarmGraphListResponse(graphs=graphs)
 
 
@@ -62,7 +62,7 @@ async def get_swarm_graph_mermaid(
     ),
 ) -> SwarmGraphMermaidResponse:
     try:
-        result = await asyncio.to_thread(service.get_graph_mermaid, graph_id, xray=xray)
+        result = service.get_graph_mermaid(graph_id, xray=xray)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

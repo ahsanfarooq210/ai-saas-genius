@@ -2,14 +2,18 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.agent.graphs.supervisor_graph import build_supervisor_graph
 from app.api.v1.router import api_router
+from app.db.checkpointer import postgres_checkpointer
 from app.services.swarm_graph_service import SwarmGraphService
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.swarm_graph_service = SwarmGraphService()
-    yield
+    async with postgres_checkpointer() as checkpointer:
+        graph = build_supervisor_graph(checkpointer)
+        app.state.swarm_graph_service = SwarmGraphService(graph)
+        yield
 
 
 app = FastAPI(lifespan=lifespan)

@@ -6,7 +6,7 @@ from typing import Any
 
 from app.agent.state.schema import DebateLogEntry, DiagramEntry, DocEntry
 
-from app.agent.graphs.supervisor_graph import supervisor_graph
+from app.agent.graphs.supervisor_graph import build_supervisor_graph, supervisor_graph
 
 
 def swarm_config(thread_id: str) -> dict:
@@ -93,9 +93,13 @@ def build_checkpoint_payload(thread_id: str, snapshot: Any) -> dict[str, Any]:
 class GraphBuilder:
     """Returns the compiled parent graph; does not wire sub-graph nodes directly."""
 
-    def __init__(self) -> None:
+    def __init__(self, checkpointer: Any | None = None) -> None:
+        self.checkpointer = checkpointer
         self.graph = None
 
     def build_graph(self):
-        self.graph = supervisor_graph
+        if self.checkpointer is None:
+            self.graph = supervisor_graph
+        else:
+            self.graph = build_supervisor_graph(self.checkpointer)
         return self.graph
