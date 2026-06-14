@@ -4,6 +4,8 @@
 
 This document explains **how list fields merge** in the swarm and why duplicate diagrams/docs appeared before the 2026-05-30 fix. Read it before changing `GlobalSwarmState` or adding reducers.
 
+If you want the simpler "how do subgraph outputs get into `GlobalSwarmState`?" explanation first, start with [subgraph-state-transfer.md](subgraph-state-transfer.md).
+
 **Related:** [how-the-swarm-graph-works.md](../current/how-the-swarm-graph-works.md) (full flow), [2026-05-30-subgraph-artifact-merge-fix.md](../changes/2026-05-30-subgraph-artifact-merge-fix.md) (changelog).
 
 ---
