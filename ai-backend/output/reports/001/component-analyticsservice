@@ -1,0 +1,103 @@
+## AnalyticsService
+
+AnalyticsService is a Node.js background worker that ingests asynchronous click-stream events from the EventQueue and materializes aggregated analytics documents into MongoDB. By processing metrics outside the synchronous redirect hot path, it ensures that URL resolution latency remains bounded by the URLService and RedisCache layers, even during traffic spikes.
+
+## Responsibilities
+
+- **Event Ingestion**: Subscribe to the EventQueue as part of a named consumer group and continuously pull click events published by URLService after each redirect.
+- **Event Normalization & Enrichment**: Parse raw JSON payloads, sanitize inputs, derive GeoIP country codes from the source IP, normalize User-Agent strings into device families, and validate required fields (`eventId`, `shortCode`, `timestamp`).
+- **Idempotent Aggregation**: Update counter documents in MongoDB using deterministic upserts keyed by `eventId` to guarantee exactly-once semantics under at-least-once queue delivery.
+- **Dimensional Rollups**: Maintain secondary aggregate collections for referrer domains, country codes, device types, and OS families linked to each short code.
+- **Dead-Letter Handling**: Detect malformed or unprocessable messages and route them to a dedicated DLQ topic after a single processing attempt to prevent crash loops.
+- **Backpressure Awareness**: Monitor consumer lag relative to the queue head and throttle in-memory buffering or trigger horizontal scaling before heap exhaustion occurs.
+- **Operational Telemetry**: Expose a lightweight HTTP readiness probe (`/health`) for container orchestration and emit process-level metrics (events/sec, batch commit latency, MongoDB write errors).
+
+## APIs and Interfaces
+
+### EventQueue Consumer Interface
+| Aspect | Detail |
+|--------|--------|
+| Protocol | AMQP 0.9.1 (RabbitMQ) or equivalent broker protocol |
+| Exchange / Topic | `url.click.events` |
+| Queue | `analytics.click.ingest` |
+| Consumer Group | `analytics-workers` |
+| Acknowledgment | Manual ack only after successful MongoDB bulk commit |
+
+### MongoDB Write Interface
+| Aspect | Detail |
+|--------|--------|
+| Driver | Mongoose 8.x or native MongoDB Node.js driver |
+| Write Concern | `w: "majority"`, `j: true` for aggregate commits; batched throughput writes use `w: 1` |
+| Operation Pattern | Unordered `bulkWrite` with `updateOne` + `upsert`, using atomic `$inc` operators |
+
+### Internal Health Probe
+```
+GET /health
+Host: analytics-service:4000
+
+200 OK
+{
+  "status": "ok",
+  "lagSeconds": 2.4,
+  "lastCommit": "2024-05-21T14:32:01Z",
+  "eventsProcessed": 15420
+}
+```
+
+## Data Owned
+
+AnalyticsService is the schema authority for all derived analytics collections. It does not own user or URL mapping data (owned by AuthService and URLService), but it owns the following MongoDB collections:
+
+- **`url_stats`**  
+  Per-short-code rollup document containing lifetime metrics.  
+  Key fields: `shortCode` (indexed), `totalClicks`, `uniqueClicks` (by session fingerprint), `lastClickAt`, `updatedAt`.
+
+- **`click_daily`**  
+  Date-granularity counters per URL for dashboard trend charts.  
+  Key fields: `shortCode`, `date` (YYYY-MM-DD), `count`, `uniqueCount`. Compound index on `(shortCode, date)`.
+
+- **`click_hourly`**  
+  Hour-granularity counters for real-time sparklines.  
+  Key fields: `shortCode`, `hourBucket` (ISO-8601 hour), `count`.
+
+- **`referrer_stats`**  
+  Referrer domain breakdown per short code.  
+  Key fields: `shortCode`, `domain`, `count`.
+
+- **`geo_stats`**  
+  Country-level click breakdown derived from GeoIP enrichment.  
+  Key fields: `shortCode`, `countryCode`, `count`.
+
+- **`device_stats`**  
+  Device and OS family aggregation.  
+  Key fields: `shortCode`, `deviceFamily`, `osFamily`, `count`.
+
+### Transient State
+- **In-flight Batch Buffer**: Holds up to `BATCH_SIZE` (default 500) events in memory before executing an unordered bulk write.
+- **Consumer Offsets / Unacked Tags**: Maintains the set of message delivery tags (RabbitMQ) or stream IDs (Redis Streams) pending MongoDB commit.
+
+## Failure Modes
+
+| Failure | Impact | Mitigation |
+|---------|--------|------------|
+| **EventQueue partition loss / broker restart** | Consumer stalls; analytics lag grows; dashboards show stale data. | Monitor `lagSeconds`. Deploy replicated queue cluster. Auto-scale workers when lag exceeds 30 seconds. |
+| **Poison message (schema mismatch)** | Repeated NACK causes crash-loop and blocks partition consumption. | Reject after one failed parse attempt; publish to `analytics.dlq` for manual inspection. |
+| **MongoDB primary step-down / network partition** | Bulk write throws `NotPrimaryError`; events remain unacked in queue. | Retry with exponential backoff (max 5 attempts). On hard failure, exit process so the orchestrator restarts the pod and reconnects to the new primary. |
+| **Duplicate event delivery** | Inflated click counts if the same `eventId` is processed twice. | Unique index on `eventId` in an idempotency collection; use `updateOne` with `$setOnInsert` to guarantee atomic deduplication. |
+| **Hot-document write contention** | Viral short code triggers concurrent updates to a single `url_stats` document, causing WiredTiger lock contention. | Use atomic `$inc` only; avoid read-modify-write. Shard `url_stats` by `shortCode` hash prefix. |
+| **Heap exhaustion during traffic spikes** | OOMKill if batch buffers grow unbounded while MongoDB is slow. | Cap `BATCH_SIZE` by count (500) and total payload bytes (8 MB). Apply backpressure by pausing the consumer stream. |
+| **Clock skew across URLService nodes** | Misaligned hourly buckets if producer timestamps drift. | Synchronize all nodes via NTP. AnalyticsService should bucket events using ingestion-time UTC if producer `timestamp` divergence exceeds 1 second. |
+
+## Scaling Considerations
+
+- **Horizontal Worker Scaling**: Deploy multiple AnalyticsService replicas that share a single consumer group. Scale out based on the consumer lag metric rather than CPU. Ensure the EventQueue is partitioned so each replica owns a non-overlapping subset of partitions.
+- **Queue Partitioning Strategy**: Partition the EventQueue by a hash of `shortCode` so that all events for a given short code route to the same partition. This preserves per-URL ordering and eliminates cross-worker document contention in MongoDB.
+- **MongoDB Write Batching**: Commit in batches of 100–500 events using unordered `bulkWrite` to amortize network round-trips. Use `w: 1` for high-throughput batch inserts and reserve `w: "majority"` only for final aggregate checkpoints if required.
+- **Database Indexing**: Maintain a compound index on `(shortCode, date)` in `click_daily` and `(shortCode, hourBucket)` in `click_hourly` to prevent collection scans during upserts. A unique index on `eventId` in a small `processed_events` TTL collection handles idempotency checks without bloating working memory.
+- **Sharding**: Shard `click_daily`, `click_hourly`, and `geo_stats` by `shortCode` hashed prefix to distribute viral load across MongoDB shards. Keep shard key cardinality high by using the full hash range.
+- **Memory & GC Tuning**: Run Node.js with explicit `--max-old-space-size` aligned to container limits (e.g., 75% of pod memory limit). Avoid large in-memory aggregations; push all rollup math to MongoDB atomic operators.
+- **Replay & Backfill**: Retain events in the EventQueue for a minimum of 7 days. When aggregate logic changes, spin up a new consumer group (e.g., `analytics-workers-v2`) replaying from the earliest offset to rebuild collections without impacting the live worker set.
+
+## Related Diagrams
+
+No paired Mermaid diagram was provided for this component.

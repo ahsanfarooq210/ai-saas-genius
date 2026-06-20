@@ -25,18 +25,18 @@ def _base_state(**overrides: Any) -> GlobalSwarmState:
             {
                 "diagram_type": "overview",
                 "component_slug": "",
-                "content": "flowchart TD\n  A[a]",
-                "path": "p",
+                "storage_key": "swarm-artifacts/test-thread/diagrams/iter1_overview.mmd",
+                "url": "https://cdn.example/test-thread/overview.mmd",
                 "iteration": 1,
             }
         ],
         "thread_id": "test-thread",
         "generated_docs": [
             {
-                "title": "overview.md",
+                "title": "System Overview",
                 "component_slug": "",
-                "content": "# Overview",
-                "path": "r/overview.md",
+                "storage_key": "swarm-artifacts/test-thread/docs/overview.md",
+                "url": "https://cdn.example/test-thread/overview.md",
             }
         ],
         "docs_complete": True,
@@ -50,8 +50,13 @@ def _base_state(**overrides: Any) -> GlobalSwarmState:
     return cast(GlobalSwarmState, state)
 
 
+@patch("app.agent.subagents.reviewer_common.artifact_store.read_text")
 @patch("app.agent.subagents.scalability_expert._llm")
-def test_scalability_node_returns_feedback_and_debate_log(mock_llm: MagicMock) -> None:
+def test_scalability_node_returns_feedback_and_debate_log(
+    mock_llm: MagicMock,
+    mock_read_text: MagicMock,
+) -> None:
+    mock_read_text.side_effect = ["flowchart TD\n  A[a]", "# Overview"]
     mock_llm.invoke.return_value = AIMessage(
         content="Missing cache layer.\n\nSTATUS: REJECTED"
     )
@@ -64,10 +69,18 @@ def test_scalability_node_returns_feedback_and_debate_log(mock_llm: MagicMock) -
     assert result["debate_logs"][0]["agent"] == "scalability"
     assert result["debate_logs"][0]["status"] == "REJECTED"
     assert result["debate_logs"][0]["iteration"] == 3
+    user_prompt = mock_llm.invoke.call_args.args[0][1]["content"]
+    assert "flowchart TD\n  A[a]" in user_prompt
+    assert "# Overview" in user_prompt
 
 
+@patch("app.agent.subagents.reviewer_common.artifact_store.read_text")
 @patch("app.agent.subagents.security_auditor._llm")
-def test_security_node_returns_feedback_and_debate_log(mock_llm: MagicMock) -> None:
+def test_security_node_returns_feedback_and_debate_log(
+    mock_llm: MagicMock,
+    mock_read_text: MagicMock,
+) -> None:
+    mock_read_text.side_effect = ["flowchart TD\n  A[a]", "# Overview"]
     mock_llm.invoke.return_value = AIMessage(
         content="TLS everywhere.\n\nSTATUS: APPROVED"
     )
@@ -81,8 +94,13 @@ def test_security_node_returns_feedback_and_debate_log(mock_llm: MagicMock) -> N
     assert result["debate_logs"][0]["iteration"] == 4
 
 
+@patch("app.agent.subagents.reviewer_common.artifact_store.read_text")
 @patch("app.agent.subagents.scalability_expert._llm")
-def test_scalability_node_appends_to_existing_debate_logs(mock_llm: MagicMock) -> None:
+def test_scalability_node_appends_to_existing_debate_logs(
+    mock_llm: MagicMock,
+    mock_read_text: MagicMock,
+) -> None:
+    mock_read_text.side_effect = ["flowchart TD\n  A[a]", "# Overview"]
     mock_llm.invoke.return_value = AIMessage(
         content="Still missing cache layer.\n\nSTATUS: REJECTED"
     )

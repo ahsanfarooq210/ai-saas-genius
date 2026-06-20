@@ -1,0 +1,69 @@
+## APIGateway
+
+### Responsibilities
+
+- **SSL/TLS Termination**: Accepts all inbound HTTPS traffic on port 443, terminates TLS using domain-bound certificates, and forwards unencrypted HTTP/1.1 or HTTP/2 traffic to internal services. This offloads cryptographic CPU cost from the Express-based `AuthService` and `URLService`.
+- **Ingress Routing**: Acts as the single entry point for the entire system:
+  - Serves ReactSPA static assets (`index.html`, JS bundles) on `/` and all non-API, non-short-code browser routes.
+  - Routes `/api/auth/*` traffic to `AuthService`.
+  - Routes `/api/url/*` traffic to `URLService`.
+  - Routes `GET /:shortCode` directly to `URLService` for redirect resolution.
+- **Global Rate Limiting**: Enforces request quotas at the edge—e.g., 100 requests/minute per IP for anonymous users and 10 URL-shorten operations/minute per authenticated user—to prevent brute-force abuse and protect downstream microservices.
+- **CORS Management**: Handles `OPTIONS` preflight requests and injects strict CORS headers for the ReactSPA origin, relieving `AuthService` and `URLService` from duplicating cross-origin logic.
+- **Request Hygiene**: Rejects disallowed HTTP methods, strips malformed headers, and imposes a maximum request body size (e.g., 1 MB) before payloads reach upstream services.
+
+### APIs / Interfaces
+
+#### Public Ingress Endpoints
+| Route | Method | Target | Purpose |
+|-------|--------|--------|---------|
+| `/` | `GET` | ReactSPA | Serve SPA shell |
+| `/:shortCode` | `GET` | URLService | Resolve short URL to original link (HTTP 302/301) |
+| `/api/auth/register` | `POST` | AuthService | User registration |
+| `/api/auth/login` | `POST` | AuthService | User login / JWT issuance |
+| `/api/auth/refresh-token` | `POST` | AuthService | JWT refresh |
+| `/api/url/shorten` | `POST` | URLService | Create new short link |
+| `/api/url/:shortCode/analytics` | `GET` | URLService | Fetch click statistics |
+
+#### Operational Endpoints
+- `GET /health` → Returns `200 OK` when the gateway process is alive. Does not check upstream health.
+- `GET /ready` → Returns `200 OK` only when configured upstream services (`AuthService`, `URLService`) are reachable and routable.
+
+#### Upstream Proxy Contract
+- Forwards traffic over persistent HTTP keep-alive connections to:
+  - `AuthService` at `http://auth-service:3001`
+  - `URLService` at `http://url-service:3002`
+- Preserves critical headers including `Authorization`, `X-Request-ID`, `X-Forwarded-For`, and `X-Real-IP`.
+
+### Data Ownership
+
+- **No Domain Data**: `APIGateway` is strictly stateless and does not own user records, URL mappings, analytics aggregates, or JWT secrets.
+- **Transient State**:
+  - TLS certificate key pairs (loaded as mounted secrets at startup).
+  - In-flight request streams and headers (held only for the duration of proxying).
+  - Runtime routing table (configuration-driven, hot-reloadable).
+- **Observability Artifacts**: Emits structured access logs (timestamp, method, path, status, latency, client IP) to stdout/a log aggregator; logs are not persisted on local disk.
+
+### Failure Modes
+
+- **SSL Certificate Expiry**: If the TLS certificate expires or the chain is invalid, browsers reject the connection entirely, causing a total ingress outage.
+- **Upstream Timeout**: If `AuthService` or `URLService` exceeds the gateway’s configured proxy read timeout (e.g., 30 s), the gateway returns `504 Gateway Timeout`. Clients may retry `POST /api/url/shorten`, leading to duplicate short-link generation if the backend already processed the first request.
+- **Service Unavailability**: When an upstream instance crashes or is unreachable, the gateway returns `502 Bad Gateway` unless a circuit breaker is configured to fail fast with `503 Service Unavailable`.
+- **Rate Limiting Skew**: In a multi-instance gateway deployment, local in-memory rate counters diverge across nodes, allowing a client to bypass limits by hitting different instances. The gateway must use a shared Redis-backed rate limit store.
+- **Routing Misconfiguration**: An erroneous rule (e.g., mapping `/api/url/*` to `AuthService`) results in functional failures (`404` or leaked auth logic) without triggering a traditional service error.
+- **Payload Exhaustion**: Requests larger than the configured body limit can cause memory pressure or Out-Of-Memory (OOM) kills in the gateway container before the upstream services are ever invoked.
+- **Redirect Response Caching**: If the gateway caches `301/302` responses from `URLService`, subsequent clicks on the same short code never reach the `URLService` or `EventQueue`, causing permanent data loss in analytics.
+
+### Scaling Considerations
+
+- **Horizontal Replication**: Run multiple stateless gateway containers behind a Layer-7 load balancer (e.g., Nginx, HAProxy, or cloud ALB). No sticky sessions are required because all request context is carried in headers.
+- **Connection Pooling**: Maintain upstream keep-alive connection pools to `AuthService` and `URLService` to eliminate TCP/TLS handshake overhead during high-traffic redirect storms.
+- **Distributed Rate Limiting**: Back the gateway’s rate limiter with `RedisCache` (e.g., via `rate-limit-redis` for Express or Nginx `limit_req_zone` backed by Redis) so that per-IP and per-user counters remain globally consistent across autoscaling events.
+- **SSL Offloading**: At >10k RPS, terminate TLS at the cloud load balancer level or use hardware-accelerated SSL to preserve gateway CPU for routing and rate-limiting logic.
+- **No Redirect Edge Caching**: Do not cache `GET /:shortCode` at the gateway. Hot short-code lookups are already optimized by `RedisCache` and `URLService`; caching at the gateway would skip `EventQueue` analytics ingestion.
+- **Autoscaling Triggers**: Scale gateway replicas on requests-per-second (RPS) and p95 latency rather than CPU alone. Viral short links can generate sudden redirect spikes that require near-instant replica expansion.
+- **Request Buffering Strategy**: Disable or minimize request body buffering for the gateway itself; stream large payloads directly to upstreams to prevent memory bloat during traffic surges.
+
+## Related Diagrams
+
+- `diagrams/001/iter1_component-apigateway.mmd`

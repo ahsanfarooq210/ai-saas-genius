@@ -10,6 +10,7 @@ from app.schemas.swarm import (
     SwarmResumeRequest,
     SwarmRunRequest,
     SwarmRunResponse,
+    SwarmSessionResponse,
 )
 
 router = APIRouter(prefix="/swarm")
@@ -42,6 +43,22 @@ async def get_swarm_checkpoint(
 ) -> SwarmCheckpointResponse:
     snapshot = await service.get_checkpoint(thread_id)
     return SwarmCheckpointResponse.model_validate(snapshot)
+
+
+@router.get("/sessions/{thread_id}", response_model=SwarmSessionResponse)
+async def get_swarm_session(
+    thread_id: str,
+    service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
+) -> SwarmSessionResponse:
+    try:
+        session_payload = service.get_session(thread_id, db)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown thread_id: {thread_id}",
+        ) from None
+    return SwarmSessionResponse.model_validate(session_payload)
 
 
 @router.get("/graphs", response_model=SwarmGraphListResponse)

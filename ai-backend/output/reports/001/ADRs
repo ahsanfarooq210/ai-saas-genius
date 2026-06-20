@@ -1,0 +1,168 @@
+## ADR-001: MERN Stack as the Unified Application Platform
+
+**Context**
+The system must support high-throughput URL shortening, redirect resolution, and analytics while maintaining rapid feature velocity. A homogeneous runtime simplifies serialization, context switching, and operational tooling across services.
+
+**Decision**
+Adopt the MERN stack as the primary technology base:
+- **MongoDB**: Sharded replica set cluster accessed via `mongos` routers for OLTP persistence (users, URL mappings, KGS counters).
+- **Express/Node.js**: Runtime for stateful API services (`URLService`, `AuthService`, `KGS`) and the analytics consumer group.
+- **React**: Single-page application (`ReactSPA`) for the management dashboard and URL creation UI.
+- **Node.js**: Also used for the `RedirectEdge` scripting layer (OpenResty/Nginx with LuaJIT integrations where necessary) and `AnalyticsConsumerGroup` consumers.
+
+**Consequences**
+- **Positive**: Full-stack TypeScript/JavaScript sharing; JSON document model aligns with MongoDB's native format; deep npm ecosystem for rate-limiting, circuit-breaker, and Kafka client libraries.
+- **Negative**: CPU-intensive work (e.g., encoding, analytics aggregation) must be explicitly offloaded or run in worker threads to avoid event-loop blocking; MongoDB's eventual consistency model requires application-level handling for secondary reads.
+
+---
+
+## ADR-002: Stateless JWT Validation at the API Gateway
+
+**Context**
+Requiring every request to transit through `AuthService` for token introspection introduces a synchronous network hop and a hard dependency on the auth database for read operations that are 100× more frequent than logins.
+
+**Decision**
+- `AuthService` is **exclusively** responsible for login, registration, and JWT issuance.
+- `APIGateway` performs **stateless** JWT validation using a locally cached JWKS (JSON Web Key Set). Tokens carry all necessary claims; no introspection request is sent to `AuthService` on API calls.
+- Revoked tokens are handled via a bloom filter stored in `RedisCluster`, checked by `APIGateway` before local signature verification.
+
+**Consequences**
+- **Positive**: `AuthService` is removed from the critical request path; gateway can scale horizontally without auth-service coupling; reduced latency on every API call.
+- **Negative**: Token revocation is eventually consistent (bloom filter sync lag); larger JWT payloads increase header size; JWKS rotation must be propagated to all gateway instances via cache TTLs or pub/sub.
+
+---
+
+## ADR-003: OpenResty/Nginx Redirect Edge for Hot-Path Isolation
+
+**Context**
+Redirect resolution traffic dwarfs URL mutation traffic by several orders of magnitude. Serving redirects through the Express-based `URLService` origin would saturate the Node.js event loop and MongoDB primary with read requests for repetitive lookups.
+
+**Decision**
+Deploy `RedirectEdge` as an OpenResty/Nginx layer that sits in front of the origin:
+- Performs 301 redirect resolution directly at the edge.
+- Implements **in-process singleflight coalescing** so that a burst of requests for the same short code results in exactly one backend lookup.
+- Queries `RedisCluster` first; only on cache miss does it fall back to `URLService`.
+- Emits clickstream events asynchronously to `KafkaCluster` without blocking the response.
+
+**Consequences**
+- **Positive**: Sub-millisecond redirects when cached; origin Node.js processes are shielded from redirect traffic; singleflight prevents cache-stampede storms.
+- **Negative**: Requires Lua/OpenResty expertise; edge logic deployments are distinct from standard Node.js CI/CD pipelines; debugging at the edge is harder than debugging Express middleware.
+
+---
+
+## ADR-004: Global CDN Edge for 301 Redirect and Static Asset Caching
+
+**Context**
+A significant portion of redirect traffic originates from repeat clicks and bot traffic. Re-evaluating every request against `RedirectEdge` or origin is wasteful for immutable or long-ttl short codes.
+
+**Decision**
+Use `CDNEdge` as the outermost global PoP network:
+- Caches 301 redirect responses with **long `Cache-Control` headers** so that browsers and downstream proxies repeat the redirect without re-contacting the origin.
+- Serves React static assets (JS/CSS bundles) stored in object storage, leaving `APIGateway` to handle only dynamic API traffic.
+- Receives explicit purge commands from `URLService` when a short code is updated or deleted.
+
+**Consequences**
+- **Positive**: Absorbs the vast majority of redirect traffic before it reaches `RedirectEdge` or origin; massive bandwidth and compute savings; improves global latency.
+- **Negative**: Stale 301s can be cached aggressively by browsers and intermediate proxies; mutation operations must trigger CDN purges and handle purge failures gracefully.
+
+---
+
+## ADR-005: Key Generation Service with Pre-Allocated Base58 Counter Ranges
+
+**Context**
+Generating unique short codes at insertion time using a MongoDB unique index on the short code field creates cross-shard contention and insertion performance degradation under high write concurrency. UUIDs are too long for a "short" URL.
+
+**Decision**
+Introduce `KGS` (Key Generation Service):
+- Maintains atomic counter documents in `MongoDB`.
+- Allocates **pre-defined ranges** of Base58-encoded counters to requesting `URLService` instances.
+- Each `URLService` node consumes codes from its locally held range without touching the database or competing with peers.
+- Counter range allocation uses atomic MongoDB find-and-modify operations to guarantee uniqueness.
+
+**Consequences**
+- **Positive**: Eliminates generation races and unique-index contention; short codes remain human-readable and URL-safe; write throughput on the URL collection scales horizontally.
+- **Negative**: `KGS` becomes a dependency for range exhaustion; services must gracefully handle range depletion (buffer ahead); slightly higher operational complexity versus random generation.
+
+---
+
+## ADR-006: Sharded MongoDB with Read Preference Routing to Secondaries
+
+**Context**
+The MongoDB cluster must sustain both high-volume OLTP writes (new URLs, user signups, KGS counter increments) and high-volume reads (cache-miss lookups for redirect resolution). Running all reads against the primary would create an I/O and CPU bottleneck.
+
+**Decision**
+- Deploy a **sharded MongoDB replica set** fronted by `mongos` routers.
+- OLTP data is partitioned across shards using a hashed or ranged shard key appropriate to each collection (e.g., short code hash for URLs).
+- `URLService` routes **cache-miss lookups** to secondary replicas using read preferences, isolating write pressure on the primary.
+- Writes (new URL mappings, KGS counter updates) always target the primary.
+
+**Consequences**
+- **Positive**: Write isolation on the primary; read horizontal scaling via secondary replicas; shard keys can be tuned for even data distribution.
+- **Negative**: Secondary reads are eventually consistent; replication lag during viral spikes could cause temporary cache-miss responses for recently created URLs; `mongos` routers add another network hop requiring monitoring.
+
+---
+
+## ADR-007: Redis Cluster for Hot Data, Rate Limiting, and Revocation Checks
+
+**Context**
+A standalone Redis instance presents a single point of failure (SPOF) and a hot-key bottleneck when a single short code goes viral. The system needs distributed caching, rate-limit counters, and revoked-token bloom filters.
+
+**Decision**
+Replace any standalone Redis with **RedisCluster**:
+- URL mappings are sharded across Redis nodes so no single instance holds all hot keys.
+- `APIGateway` stores sliding-window rate-limit counters in RedisCluster.
+- Revoked-token bloom filters are maintained in RedisCluster for fast, O(1) existence checks during stateless JWT validation.
+
+**Consequences**
+- **Positive**: Eliminates SPOF and hot-key bottlenecks; linear scalability by adding shards; native Redis Cluster failover via replica promotion.
+- **Negative**: Clients must support the Redis Cluster protocol and handle `MOVED`/`ASK` redirects; multi-key operations must target the same hash slot or use hash tags; cluster rebalancing is operationally complex.
+
+---
+
+## ADR-008: Circuit Breakers and Singleflight Request Coalescing
+
+**Context**
+Under viral traffic or slow MongoDB secondary queries, concurrent requests for the same uncached short code can generate a "cache stampede," overwhelming the database and cascading into service timeouts.
+
+**Decision**
+Implement protective patterns at two layers:
+- **`RedirectEdge` (OpenResty)**: In-process singleflight coalescing ensures that concurrent requests for the same short code during a cache miss result in exactly one origin fetch.
+- **`URLService` (Node.js/Express)**: Singleflight coalescing for cache-miss lookups, combined with **circuit-breaker protected reads** from MongoDB secondaries. If secondaries exceed latency thresholds or error rates, the breaker opens and returns fast failures rather than queuing requests.
+
+**Consequences**
+- **Positive**: Prevents redundant database queries during traffic spikes; circuit breakers stop cascading failures; preserves Node.js event-loop health.
+- **Negative**: Singleflight requires careful memory management in OpenResty Lua to prevent stale request tables; circuit breakers need tuned thresholds (error %, latency percentiles, half-open probe frequency) to avoid flapping.
+
+---
+
+## ADR-009: Kafka-ClickHouse Pipeline for Physical OLAP Isolation
+
+**Context**
+Writing high-volume clickstream events (every redirect generates an analytics event) directly into MongoDB would pollute the OLTP working set, degrade cache performance, and bloat indexes used for URL lookups.
+
+**Decision**
+- `RedirectEdge` emits clickstream events **asynchronously** to `KafkaCluster` without awaiting acknowledgement before sending the 301 response.
+- `KafkaCluster` provides partitioned, at-least-once delivery with disk persistence.
+- `AnalyticsConsumerGroup` (horizontally-scalable Node.js consumers) reads from Kafka partitions and drains events into `AnalyticsDB` (ClickHouse).
+- ClickHouse is physically isolated from MongoDB and optimized for columnar OLAP aggregations.
+
+**Consequences**
+- **Positive**: Zero impact of analytics ingestion on redirect latency or MongoDB performance; real-time analytics and aggregations; consumers can scale out independently during viral spikes.
+- **Negative**: At-least-once delivery requires idempotent consumer logic or deduplication in ClickHouse; Kafka topic retention and partition count must be planned for peak throughput; additional operational cluster to maintain.
+
+---
+
+## ADR-010: Synchronous CDN Cache Invalidation on URL Mutations
+
+**Context**
+When a user updates the destination of a short code or deletes it, cached 301 responses in `CDNEdge` and `RedisCluster` must be invalidated promptly to prevent serving stale or broken redirects.
+
+**Decision**
+On URL creation, update, or deletion:
+- `URLService` writes the new mapping to `RedisCluster` immediately.
+- `URLService` issues a **purge request** to `CDNEdge` to evict the old 301 response.
+- The operation is considered successful only after the database write is durable; CDN purge is treated as a mandatory post-commit action with retry logic.
+
+**Consequences**
+- **Positive**: Minimizes the eventually-consistent window for mutated URLs; prevents user-facing redirect loops or 404s due to stale edge caches.
+- **Negative**: CDN purge APIs have rate limits and variable latency; failed purges must be queued to a background retry mechanism or reconciliation job; adds latency to mutation API responses.

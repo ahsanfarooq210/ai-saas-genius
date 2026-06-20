@@ -65,8 +65,8 @@ class ArchitectGraphState(TypedDict):
 class DiagramEntry(TypedDict):
     diagram_type: str  # "overview" | "component-api-gateway" | "auth-flow" | ...
     component_slug: str  # component-scoped slug, or "" for cross-cutting diagrams
-    content: str  # raw Mermaid string
-    path: str  # file key: diagrams/{thread_id}/iter{n}_{diagram_type}.mmd
+    storage_key: str  # Cloudinary public ID for the stored Mermaid asset
+    url: str  # public delivery URL for the Mermaid asset
     iteration: int  # which swarm pass produced this
 
 
@@ -87,8 +87,8 @@ class DiagramWorkerState(TypedDict):
 class DocEntry(TypedDict):
     title: str
     component_slug: str  # pairs with DiagramEntry; "" for overview / ADR / runbook
-    content: str
-    path: str  # reports/{thread_id}/{filename}
+    storage_key: str  # Cloudinary public ID for the stored Markdown asset
+    url: str  # public delivery URL for the Markdown asset
 
 
 class DocGraphState(TypedDict):

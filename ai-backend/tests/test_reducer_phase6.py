@@ -20,8 +20,8 @@ def _make_entry(diagram_type: str) -> DiagramEntry:
     return {
         "diagram_type": diagram_type,
         "component_slug": "",
-        "content": f"flowchart TD\n    A[{diagram_type}]",
-        "path": f"diagrams/test/iter1_{diagram_type}.mmd",
+        "storage_key": f"swarm-artifacts/test/diagrams/iter1_{diagram_type}.mmd",
+        "url": f"https://cdn.example/test/iter1_{diagram_type}.mmd",
         "iteration": 1,
     }
 

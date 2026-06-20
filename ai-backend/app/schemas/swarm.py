@@ -38,16 +38,18 @@ class DiagramCheckpointItem(BaseModel):
     diagram_type: str
     component_slug: str = ""
     valid: bool = Field(
-        description="False when the worker exhausted lint retries (content is syntax_error)",
+        description="False when the worker failed to persist a valid diagram artifact",
     )
-    path: str = ""
+    storage_key: str = ""
+    url: str = ""
     iteration: int = 0
 
 
 class DocCheckpointItem(BaseModel):
     title: str
     component_slug: str = ""
-    path: str = ""
+    storage_key: str = ""
+    url: str = ""
 
 
 class DebateLogCheckpointItem(BaseModel):
@@ -83,25 +85,43 @@ class SwarmCheckpointResponse(BaseModel):
     security_feedback: str = ""
     debate_log_count: int = 0
     debate_logs: list[DebateLogCheckpointItem] = Field(default_factory=list)
-    values: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Full checkpoint values including Mermaid content",
-    )
 
 
 class DiagramEntryResponse(BaseModel):
     diagram_type: str
     component_slug: str = ""
-    content: str
-    path: str = ""
+    storage_key: str = ""
+    url: str = ""
     iteration: int = 1
 
 
 class DocEntryResponse(BaseModel):
     title: str
     component_slug: str = ""
-    content: str
-    path: str = ""
+    storage_key: str = ""
+    url: str = ""
+
+
+class SessionArtifactResponse(BaseModel):
+    artifact_type: str
+    name: str
+    component_slug: str = ""
+    storage_key: str
+    url: str
+    iteration: int | None = None
+
+
+class SwarmSessionResponse(BaseModel):
+    thread_id: str
+    requirement: str
+    status: str
+    complexity: int | None = None
+    diagram_count: int | None = None
+    doc_count: int | None = None
+    created_at: str | None = None
+    completed_at: str | None = None
+    generated_diagrams: list[SessionArtifactResponse] = Field(default_factory=list)
+    generated_docs: list[SessionArtifactResponse] = Field(default_factory=list)
 
 
 class SwarmRunResponse(BaseModel):

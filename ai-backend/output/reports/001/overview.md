@@ -1,62 +1,90 @@
-# Social Media Automation Platform — Architecture Overview
+## Overview
 
-## Executive Summary
+This document describes the architecture of a high-traffic URL shortener built on the MERN stack (MongoDB, Express, React, Node.js). The system is optimized for a massively read-skewed workload in which short-link redirects dominate traffic. To handle viral spikes without origin overload, the design pushes redirect resolution as close to the user as possible—using a global CDN edge for cached 301 responses, an OpenResty/Nginx hot-path layer with in-process singleflight coalescing, and a distributed Redis Cluster for sub-millisecond lookups. All stateful coordination is isolated behind clear boundaries: MongoDB serves OLTP, ClickHouse serves OLAP, and Kafka brokers durably buffer clickstream events between the two.
 
-This platform automates social media publishing across Instagram, Twitter/X, Facebook, TikTok, and LinkedIn. The backend is built with Node.js and Express, using MongoDB as the primary document database and Agenda.js for background job orchestration. Users authenticate via OAuth, connect platform accounts, and configure posting preferences—target platforms, media type (photo or video), captions, hashtags, posting frequency, and time slots. The system translates these preferences into durable Agenda.js jobs stored in MongoDB. At scheduled times, background workers prepare media assets and execute authenticated API calls to publish content on behalf of the user. All OAuth tokens are encrypted at rest in a dedicated token store, and media files are persisted in S3-compatible object storage with CDN delivery.
+---
 
-## Component Catalog
+## Architecture Tenets
 
-### Client Entry Point
-- **[API Gateway](api-gateway.md)** — Express.js HTTP entry point serving web and mobile clients. Validates requests, enforces rate limits, routes traffic to domain services, and aggregates downstream responses.
+* **Edge-First Redirects** — The vast majority of `GET /:shortCode` requests never reach the origin. Long-lived `Cache-Control` headers on 301 responses at the CDN absorb viral traffic.
+* **Hot / Cold Path Separation** — Redirect resolution (RedirectEdge → RedisCluster → URLService fallback) is physically and logically isolated from URL management APIs (ReactSPA → APIGateway → URLService).
+* **Coalesced Origin Access** — Singleflight request coalescing in both RedirectEdge and URLService prevents thundering-herd database hits when the CDN or Redis cache misses.
+* **Stateless Authentication** — AuthService issues JWTs at login/registration time but is removed from the request validation path. The APIGateway validates tokens statelessly using a local JWKS cache and enforces rate limits via RedisCluster without an auth hop.
+* **OLTP / OLAP Isolation** — Click streams are emitted asynchronously to Kafka and drained by AnalyticsConsumerGroup into ClickHouse, keeping MongoDB I/O reserved for transactional URL and user data.
 
-### Identity & Account Management
-- **[Auth Service](auth-service.md)** — Handles user registration, login, JWT issuance/validation, and OAuth authorization-code flows for connecting social platform accounts.
-- **[User Service](user-service.md)** — Owns user profiles, linked platform accounts, and posting preference configurations (frequency, time windows, platform selection).
-- **[Token Store](token-store.md)** — Secure encrypted vault for OAuth access and refresh tokens. Provides decryption-on-read APIs to ensure tokens never appear in plaintext in application logs or database dumps.
+---
 
-### Content & Media Pipeline
-- **[Content Service](content-service.md)** — Manages post drafts, caption text, hashtag sets, and media references. Maintains draft state (draft, scheduled, published, failed) before hand-off to the scheduler.
-- **[Media Service](media-service.md)** — Accepts photo and video uploads, generates thumbnails, transcodes video variants, and manages upload/download URLs for S3-compatible object storage.
+## Component Inventory
 
-### Scheduling & Publishing Execution
-- **[Scheduler Service](scheduler-service.md)** — Reads user posting preferences and generates or updates recurring Agenda.js job definitions in MongoDB. Handles preference changes by rescheduling or canceling existing jobs.
-- **[Agenda Worker](agenda-worker.md)** — Background Node.js process running Agenda.js. Locks jobs in MongoDB, fetches prepared content, delegates publishing, and records job outcomes.
-- **[Publisher Service](publisher-service.md)** — Formats platform-specific payloads, attaches media URLs, and executes publish calls. Handles retries, idempotency keys, and per-platform error mapping.
-- **[Platform API Clients](platform-api-clients.md)** — OAuth-authenticated HTTP clients for Instagram, Twitter/X, Facebook, TikTok, and LinkedIn. Manages request signing, rate-limit tracking, and token refresh via the Token Store.
+### Edge & Ingress
+* **[CDNEdge](./component-cdnedge.md)** — Global edge PoP network serving 301 redirects with long `Cache-Control` headers and React static assets.
+* **[APIGateway](./component-apigateway.md)** — Managed auto-scaling L7 ingress validating JWTs, enforcing Redis-backed rate limits, and routing to backend APIs.
+* **[RedirectEdge](./component-redirectedge.md)** — OpenResty/Nginx hot-path edge layer performing 301 resolution, in-process singleflight, Redis checks, and fallback to URLService on cache miss.
 
-### Observability & Notifications
-- **[Notification Service](notification-service.md)** — Dispatches email and push notifications for successful publishes, permanent failures, OAuth token expiry, and account-level issues (e.g., revoked permissions).
+### Application Services
+* **[ReactSPA](./component-reactspa.md)** — React frontend. Static JS/CSS bundles are hosted on object storage and served through CDNEdge; dynamic API calls go to APIGateway.
+* **[URLService](./component-urlservice.md)** — Express/Node API for URL creation, update, and deletion. Handles rare origin redirect cache-misses with singleflight coalescing and circuit-breaker protected reads from MongoDB secondaries. Writes new mappings to RedisCluster and purges CDNEdge on mutations.
+* **[AuthService](./component-authservice.md)** — Express/Node service exclusively for login, registration, and JWT issuance.
+* **[KGS](./component-kgs.md)** — Key Generation Service (Node.js) that atomically allocates pre-defined Base58 counter ranges from MongoDB, guaranteeing unique short codes without generation races.
 
-### Data & Storage Infrastructure
-- **[MongoDB](mongodb.md)** — Primary database for users, posts, job definitions, job execution logs, media metadata, platform connection states, and Agenda.js’s internal job queue collections.
-- **[Object Storage](object-storage.md)** — S3-compatible blob storage for original uploads, transcoded videos, thumbnails, and CDN origin assets.
+### Data & Messaging
+* **[MongoDBCluster](./component-mongodbcluster.md)** — Sharded MongoDB replica set fronted by mongos routers. Dedicated to OLTP workloads with read preferences routing cache-miss lookups to secondaries.
+* **[RedisCluster](./component-rediscluster.md)** — Distributed Redis Cluster caching hot URL mappings, sharded rate-limit counters, and revoked-token bloom filters.
+* **[KafkaCluster](./component-kafkacluster.md)** — Replicated Kafka broker cluster ingesting clickstream events from RedirectEdge and cache-invalidation topics with partitioned, at-least-once delivery.
+* **[AnalyticsDB](./component-analyticsdb.md)** — ClickHouse columnar OLAP store physically isolated from MongoDB for real-time analytics.
 
-## End-to-End Flow
+### Stream Processing
+* **[AnalyticsConsumerGroup](./component-analyticsconsumergroup.md)** — Horizontally-scalable Node.js consumer group reading from Kafka partitions and processing click events idempotently into AnalyticsDB.
 
-1. **Onboarding**: A user signs up via the **Auth Service** and connects one or more social accounts through OAuth. Tokens are encrypted and stored in the **Token Store**; connection state is saved in **MongoDB**.
-2. **Preference Configuration**: The user defines posting preferences through the **User Service** (e.g., “Post photos to Instagram and Twitter every Tuesday and Thursday at 9:00 AM with caption template X”).
-3. **Job Generation**: The **Scheduler Service** creates recurring Agenda.js jobs in **MongoDB** based on these preferences.
-4. **Content Preparation**: Before a scheduled run, the user (or system) creates a draft in the **Content Service** linking captions and media references. The **Media Service** ensures the required photo/video files and thumbnails exist in **Object Storage**.
-5. **Execution**: The **Agenda Worker** locks the job, assembles the publish request, and calls the **Publisher Service**.
-6. **Platform Publish**: The **Publisher Service** uses the appropriate **Platform API Client** to upload or publish the content via the native platform API.
-7. **Outcome**: On success or failure, the job state is updated in **MongoDB**, and the **Notification Service** alerts the user. Permanent failures (e.g., revoked OAuth) pause future jobs for that account until re-authentication.
+---
 
-## Operational Considerations
+## Request Flows
 
-- **Horizontal Scaling**: The API Gateway and Agenda Worker are stateless and scale behind a load balancer. Multiple Agenda Worker instances coordinate via MongoDB’s distributed job locking to prevent duplicate publishes.
-- **Rate Limiting**: Platform API Clients enforce per-platform rate limits (e.g., Instagram Graph API, Twitter API v2) with token-bucket or sliding-window counters to avoid account bans.
-- **Media Processing**: CPU-intensive transcoding in the Media Service is offloaded to background queues so that API Gateway threads are never blocked.
-- **Database Load**: Agenda.js writes heavily to MongoDB for job locking, logging, and state transitions. The cluster must be provisioned with sufficient IOPS and replica-set members to handle write-heavy workloads.
-- **Storage Lifecycle**: Object Storage should implement lifecycle policies to transition published media to infrequent-access tiers and expire temporary upload buffers after 24 hours.
-- **Security**: The Token Store encrypts OAuth secrets with AES-256 (or equivalent) before persistence. Encryption keys are managed via a key-management service separate from the database.
+### Redirect Resolution (Hot Path)
+1. Client requests `/:shortCode`.
+2. **CDNEdge** returns a cached 301 immediately if the redirect is present in the edge cache.
+3. On cache miss, traffic reaches **RedirectEdge** (OpenResty/Nginx).
+4. RedirectEdge applies in-process **singleflight coalescing** and queries **RedisCluster** for the mapping.
+5. If Redis hits, RedirectEdge responds with a 301, emits an async click event to **KafkaCluster**, and the CDN caches the response for subsequent requests.
+6. If Redis misses, RedirectEdge falls back to **URLService** under a circuit breaker.
+7. URLService reads from a **MongoDB secondary** (isolating write pressure), returns the long URL, and RedirectEdge populates RedisCluster before issuing the 301.
 
-## Failure Modes
+### URL Management (Cold Path)
+1. Authenticated users interact with the **ReactSPA**.
+2. API calls traverse **APIGateway**, which statelessly validates JWTs against its local JWKS cache, checks revoked-token bloom filters and sharded rate-limit counters in **RedisCluster**, and routes to **URLService**.
+3. URLService writes new mappings to the **MongoDBCluster** primary, pushes the mapping into **RedisCluster**, and issues a purge to **CDNEdge** so the next redirect fetch sees fresh data.
+4. Updates and deletions follow the same pattern: MongoDB commit → Redis update → CDN purge.
 
-- **OAuth Token Expiry / Revocation**: Platform API Clients detect 401/403 errors, surface them to the Publisher Service, and trigger the Notification Service. The Scheduler Service pauses affected jobs to prevent repeated failed attempts.
-- **Platform API Outages**: Publisher Service retries with exponential backoff and jitter. After a configurable threshold, the job is marked failed and the user is notified.
-- **Media Processing Failures**: Corrupt files or unsupported codecs are caught in the Media Service, blocking the draft from scheduling and returning a validation error to the client.
-- **Job Queue Lag**: If Agenda Workers cannot keep up with the job volume, MongoDB queue depth grows. Mitigation requires scaling worker instances and, if necessary, sharding the Agenda.js job collection.
+### Authentication
+1. The ReactSPA calls login/registration endpoints via APIGateway to **AuthService**.
+2. AuthService issues a signed JWT persisted in **MongoDBCluster** (user record) and returns it to the client.
+3. All subsequent requests carry the JWT; APIGateway validates it locally without contacting AuthService.
+
+### Analytics Pipeline
+1. **RedirectEdge** emits clickstream events (timestamp, short code, geo, UA) asynchronously to **KafkaCluster**.
+2. **AnalyticsConsumerGroup** drains these partitions in parallel.
+3. Consumers write idempotently into **AnalyticsDB** (ClickHouse) for dashboard aggregations and reporting.
+
+---
+
+## Cross-Cutting Concerns
+
+* **Rate Limiting** — APIGateway maintains sharded counters in RedisCluster, rejecting abuse before it reaches Node.js services.
+* **Cache Invalidation** — Mutations in URLService trigger a write-through to RedisCluster and an explicit CDNEdge purge; Kafka also carries cache-invalidation topics for edge state reconciliation if needed.
+* **Token Revocation** — A revoked-token Bloom filter stored in RedisCluster allows APIGateway to reject compromised JWTs without a round-trip to AuthService.
+* **Unique Key Generation** — KGS pre-allocates non-overlapping Base58 counter ranges atomically from MongoDB. URLService consumes these ranges in-memory, eliminating cross-shard unique-index contention during high-volume short-code creation.
+
+---
+
+## Failure Modes & Resilience
+
+* **RedisCluster Partition** — RedirectEdge falls back directly to URLService → MongoDB secondaries. Redirect latency degrades from sub-millisecond to single-digit milliseconds, but the service remains available.
+* **KafkaCluster Unavailability** — RedirectEdge emits click events asynchronously. If Kafka is unreachable, the emit is best-effort dropped rather than blocking the 301 response; analytics temporarily loses fidelity but redirect availability is preserved.
+* **MongoDB Primary Failure** — Write operations (URL creation, KGS range allocation) stall until failover completes. Read operations for cache misses continue against secondaries.
+* **CDNEdge PoP Failure** — Traffic automatically shifts to an alternate PoP or back to the origin RedirectEdge. Static React assets may be served from object storage origin directly if necessary.
+
+---
 
 ## Related Diagrams
 
-- [System Overview](diagrams/001/iter1_overview.mmd)
+* [System Overview Diagram](./diagrams/001/iter4_overview.mmd) — End-to-end component topology and traffic flow for the URL shortener platform.

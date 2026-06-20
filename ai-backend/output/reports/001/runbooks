@@ -1,0 +1,465 @@
+# Runbooks
+
+Operational runbooks for the high-traffic MERN URL shortener. Each procedure assumes production access to the Kubernetes namespaces, MongoDB sharded cluster (`mongos` routers), Redis Cluster, Kafka brokers, OpenResty/Nginx (`RedirectEdge`), CDN purge API, and the Express/Node service meshes (`URLService`, `AuthService`, `KGS`, `AnalyticsConsumerGroup`).
+
+---
+
+## Severity Definitions
+
+| Level | Criteria | Response Time |
+|-------|----------|---------------|
+| **SEV 1** | Redirect loop, origin overload, or complete inability to resolve short URLs. Revenue or brand at immediate risk. | 5 min |
+| **SEV 2** | URL mutations (create/update/delete) failing, auth issuance down, analytics pipeline > 1 hr lag, or degraded P99 > 2 s. | 15 min |
+| **SEV 3** | Stale CDN cache, partial SLO miss, non-critical consumer lag, or single-node failures with automatic failover already engaged. | 1 hr |
+
+---
+
+## Prerequisites & Access
+
+```bash
+# Context
+export NS=url-shortener-prod
+export MONGOS_URI="mongodb://mongos-router.url-shortener.svc.cluster.local:27017/urlsrv"
+export REDIS_CLI="redis-cli -c -h redis-cluster.url-shortener.svc.cluster.local -p 6379"
+
+# Kafka
+export KAFKA_BROKERS="kafka-0.kafka.url-shortener.svc:9092,kafka-1.kafka.url-shortener.svc:9092"
+
+# CDN Purge
+export CDN_API_KEY=<from Vault>
+export CDN_PURGE_URL="https://api.cdnprovider.com/v1/purge"
+```
+
+---
+
+## Health Check Quick Reference
+
+```bash
+# RedirectEdge (OpenResty)
+curl -s -o /dev/null -w "%{http_code} %{time_total}" \
+  -H "Host: r.example.com" \
+  http://redirect-edge.url-shortener.svc/healthz
+
+# URLService readiness
+curl -s http://url-service.url-shortener.svc:3000/health
+
+# Redis Cluster
+$REDIS_CLI CLUSTER INFO | grep cluster_state
+
+# MongoDB primary
+mongosh $MONGOS_URI --eval "db.adminCommand({ isMaster: 1 })" | grep primary
+
+# Kafka consumer lag
+kafka-consumer-groups.sh --bootstrap-server $KAFKA_BROKERS \
+  --describe --group analytics-consumers
+```
+
+---
+
+## Runbook: Origin Redirect Overload (Cache Miss Storm)
+
+**Applies to:** `RedirectEdge`, `URLService`, `RedisCluster`, `MongoDBCluster`
+
+### Symptoms
+- P99 latency on `GET /:shortCode` exceeds 500 ms.
+- `RedirectEdge` logs show `upstream timed out` to `URLService`.
+- `URLService` CPU/memory climbing; circuit breaker `mongodb_secondary` open.
+- MongoDB secondary query ops/sec spike.
+
+### Diagnosis
+1. Verify Redis hit rate:
+   ```bash
+   $REDIS_CLI INFO stats | grep -E "keyspace_hits|keyspace_misses"
+   ```
+   Hit rate < 95 % indicates a mass-invalidation or viral key churn.
+2. Check `RedirectEdge` singleflight queue depth:
+   ```bash
+   curl -s http://redirect-edge-svc:8080/metrics | grep 'singleflight_inflight'
+   ```
+3. Inspect `URLService` circuit breaker state:
+   ```bash
+   curl -s http://url-service-svc:3000/metrics | grep 'circuit_breaker_state{ name="mongodb_secondary" }'
+   ```
+   Value `2` = OPEN.
+
+### Mitigation
+1. **Scale `URLService` horizontally** to absorb the fallback load:
+   ```bash
+   kubectl scale deployment url-service -n $NS --replicas=$(($(kubectl get deployment url-service -n $NS -o json | jq '.spec.replicas') + 10))
+   ```
+2. **Warm CDN Edge cache** for the top 10k keys to reduce origin hits:
+   ```bash
+   # Populate Redis first, then force CDN prefetch
+   curl -X POST http://url-service-svc:3000/admin/warm-cache -d '{"limit":10000}'
+   ```
+3. If MongoDB secondaries are lagging (> 10 s), temporarily shift `URLService` fallback reads to `primaryPreferred` with a tight concurrency limit of 50 in-flight requests to protect the primary.
+4. If `RedirectEdge` OpenResty worker memory is exhausted due to singleflight buildup, perform a **rolling restart** (zero-downtime with 3+ replicas):
+   ```bash
+   kubectl rollout restart deployment redirect-edge -n $NS
+   ```
+
+### Verification
+- Redis hit rate returns to > 98 %.
+- `URLService` 5xx rate < 0.1 %.
+- `mongostat` shows secondary `qr|qw` queues at 0.
+
+---
+
+## Runbook: MongoDB Primary Failover & Write Unavailability
+
+**Applies to:** `MongoDBCluster`, `KGS`, `URLService`, `AuthService`
+
+### Symptoms
+- `URLService` returns `503` on `POST /api/urls` with `MongoServerError: not master`.
+- `KGS` logs show `Range allocation timeout`.
+- `AuthService` login/registration returns `500`.
+
+### Diagnosis
+1. Identify the current primary per shard:
+   ```bash
+   mongosh $MONGOS_URI --eval "sh.status()" | grep -A 2 "primary"
+   ```
+2. Check replica set election status:
+   ```bash
+   mongosh "mongodb://shard0-primary:27017" --eval "rs.status()" | jq '.members[] | {name, stateStr}'
+   ```
+3. Review `mongos` router logs for `SocketException` or `InterruptedDueToReplStateChange`.
+
+### Mitigation
+1. If the primary is down and no automatic election occurred, force a reconfiguration or promote the most caught-up secondary manually (SEV 1 approval required).
+2. **Pause non-critical background jobs** (e.g., analytics batch backfill cronjobs) that write to MongoDB.
+3. **KGS:** If the counter collection is unreachable, reduce batch allocation size from 1,000 to 100 to shrink transaction window:
+   ```bash
+   kubectl set env deployment/kgs KEY_BATCH_SIZE=100 -n $NS
+   ```
+4. **URLService:** Enable fail-fast on writes rather than retry storm. Verify `writeConcern: { w: majority, j: true, wtimeout: 5000 }` so requests timeout quickly and return 503 to the caller, triggering client back-off.
+
+### Verification
+- `rs.status()` shows a new `PRIMARY`.
+- `URLService` write throughput recovers.
+- KGS resumes allocating Base58 ranges without `E11000` duplicate key errors.
+
+---
+
+## Runbook: Redis Cluster Partition or Hot-Key Bottleneck
+
+**Applies to:** `RedisCluster`, `RedirectEdge`, `APIGateway`
+
+### Symptoms
+- `RedirectEdge` logs contain `MOVED`, `ASK`, or `CLUSTERDOWN` errors.
+- Rate limiting appears erratic (APIGateway lets traffic through or throttles everyone).
+- A specific viral short code causes extreme latency on its hash slot.
+
+### Diagnosis
+1. Check cluster health:
+   ```bash
+   $REDIS_CLI CLUSTER INFO
+   # look for cluster_state:fail or known_nodes < expected
+   ```
+2. Identify the node owning the hot slot:
+   ```bash
+   $REDIS_CLI CLUSTER KEYSLOT "url:<viral_shortcode>"
+   $REDIS_CLI CLUSTER NODES | grep <slot_id>
+   ```
+3. Inspect node-level memory and connections:
+   ```bash
+   $REDIS_CLI -h <hot-node-ip> INFO memory | grep used_memory_human
+   ```
+
+### Mitigation
+1. If a master is down and its replica is alive, promote the replica:
+   ```bash
+   $REDIS_CLI -h <replica-ip> CLUSTER FAILOVER TAKEOVER
+   ```
+2. If a **hot key** is saturating a single slot:
+   - Scale `RedirectEdge` replicas horizontally. Each replica maintains its own in-process singleflight, distributing the read load across Node processes.
+   - Temporarily duplicate the mapping to a shadow key with a different hash tag only if `URLService` can write both (use only for SEV 1).
+3. If the rate-limit counter shard is the bottleneck, switch `APIGateway` to local in-memory token bucket for 5 minutes:
+   ```bash
+   kubectl set env deployment/api-gateway RATE_LIMIT_MODE=local_fallback -n $NS
+   ```
+
+### Verification
+- `CLUSTER INFO` reports `cluster_state:ok`.
+- Node memory < 85 %.
+- `RedirectEdge` `MOVED` error rate = 0.
+
+---
+
+## Runbook: KGS Range Exhaustion & Allocation Failure
+
+**Applies to:** `KGS`, `MongoDBCluster`
+
+### Symptoms
+- `POST /api/urls` latency spikes to > 2 s or returns `500`.
+- `KGS` logs: `Failed to allocate counter range` or `MongoNetworkTimeout`.
+- Base58 counter collection `sequence` value approaching configured architectural limit (e.g., 2^53).
+
+### Diagnosis
+1. Check current counter watermark:
+   ```bash
+   mongosh $MONGOS_URI --eval "db.counters.findOne({_id:'url_counter'})"
+   ```
+2. Review KGS allocation histogram:
+   ```bash
+   curl -s http://kgs-svc:3000/metrics | grep 'kgs_allocation_latency_seconds_bucket'
+   ```
+3. Check MongoDB lock stats on the `counters` collection:
+   ```bash
+   mongosh $MONGOS_URI --eval "db.counters.stats().wiredTiger.concurrentTransactions"
+   ```
+
+### Mitigation
+1. Reduce contention by lowering the per-request batch size and increasing KGS replica count:
+   ```bash
+   kubectl scale deployment kgs -n $NS --replicas=5
+   kubectl set env deployment/kgs RANGE_SIZE=500 -n $NS
+   ```
+2. If the counter is near the configured limit, expand the counter document to a 64-bit integer or add a second counter namespace (`url_counter_v2`) and update `KGS` to interleave ranges.
+3. **Emergency fallback:** If `KGS` is completely unreachable, `URLService` can be switched to consume a pre-staged emergency range from a ConfigMap (risk of collision if KGS recovers concurrently; use only under SEV 1):
+   ```bash
+   kubectl patch deployment url-service -n $NS -p '{"spec":{"template":{"spec":{"containers":[{"name":"url-service","env":[{"name":"EMERGENCY_KGS_RANGE","value":"999000000-999999999"}]}]}}}}'
+   ```
+
+### Verification
+- KGS logs show successful allocations every < 50 ms.
+- `URLService` 500 rate drops to 0.
+- No `E11000` duplicate key errors in `URLService` MongoDB logs.
+
+---
+
+## Runbook: APIGateway JWT Validation & Rate-Limit Degradation
+
+**Applies to:** `APIGateway`, `AuthService`, `RedisCluster`
+
+### Symptoms
+- Mass `401 Unauthorized` for valid tokens.
+- `429 Too Many Requests` for users well under limits.
+- `APIGateway` pods crash-looping after AuthService key rotation.
+
+### Diagnosis
+1. Inspect JWKS cache state in `APIGateway`:
+   ```bash
+   kubectl exec -n $NS deploy/api-gateway -- cat /tmp/jwks_cache.json | jq '.keys[].kid'
+   ```
+2. Compare against AuthService current keys:
+   ```bash
+   curl -s http://auth-service-svc:3000/.well-known/jwks.json | jq '.keys[].kid'
+   ```
+3. Check RedisCluster rate-limit shard latency:
+   ```bash
+   $REDIS_CLI --latency-history -h <rate-limit-shard-ip>
+   ```
+
+### Mitigation
+1. If JWKS cache is stale (`kid` mismatch), trigger a rolling restart of `APIGateway` to force a fresh fetch (cache is local in-process):
+   ```bash
+   kubectl rollout restart deployment api-gateway -n $NS
+   ```
+2. If RedisCluster shard serving rate limits is down:
+   - Set `APIGateway` to `FAIL_OPEN` on rate limits to preserve availability:
+     ```bash
+     kubectl set env deployment/api-gateway RATE_LIMIT_FAIL_OPEN=true -n $NS
+     ```
+   - Alert SEV 2 to fix the Redis node.
+3. If AuthService rotated signing keys unexpectedly, verify the old `kid` is present in the JWKS endpoint for at least one TTL window (24 hr) before removal. If not, force-refresh all active user sessions via ReactSPA logout banner.
+
+### Verification
+- `curl -H "Authorization: Bearer $TOKEN" http://api-gateway-svc/health` returns `200`.
+- Rate-limit headers (`X-RateLimit-Remaining`) present and decrementing correctly.
+
+---
+
+## Runbook: Kafka Clickstream Backpressure & Analytics Lag
+
+**Applies to:** `RedirectEdge`, `KafkaCluster`, `AnalyticsConsumerGroup`, `AnalyticsDB`
+
+### Symptoms
+- `RedirectEdge` memory usage climbs (asynchronous producer buffer accumulating).
+- Kafka broker disk > 85 %.
+- ClickHouse dashboards show data > 1 hour stale.
+- `AnalyticsConsumerGroup` pods in `CrashLoopBackOff`.
+
+### Diagnosis
+1. Measure consumer lag per partition:
+   ```bash
+   kafka-consumer-groups.sh --bootstrap-server $KAFKA_BROKERS \
+     --describe --group analytics-consumers | awk '$5 > 100000 {print}'
+   ```
+2. Check `RedirectEdge` producer buffer pressure:
+   ```bash
+   curl -s http://redirect-edge-svc:8080/metrics | grep 'kafka_producer_buffer_total_bytes'
+   ```
+3. Verify ClickHouse ingestion errors:
+   ```bash
+   kubectl logs -n $NS -l app=analytics-consumer --tail=100 | grep "Code: 242"
+   ```
+
+### Mitigation
+1. **Scale consumers** horizontally to match partition count (ensure 1:1 consumer-to-partition ratio for max parallelism, or add partitions first):
+   ```bash
+   kafka-topics.sh --bootstrap-server $KAFKA_BROKERS --topic clicks --alter --partitions 24
+   kubectl scale deployment analytics-consumer -n $NS --replicas=24
+   ```
+2. If Kafka disk is full, temporarily lower retention to 6 hours to buy time:
+   ```bash
+   kafka-configs.sh --bootstrap-server $KAFKA_BROKERS \
+     --entity-type topics --entity-name clicks \
+     --alter --add-config retention.ms=21600000
+   ```
+3. If `RedirectEdge` is backpressuring and risk of OOM, spool to local disk by enabling `KAFKA_PRODUCER_ENABLE_IDEMPOTENCE=false` and `BUFFER_MEMORY=134217728` (128 MB) as a short-term relief, or temporarily disable clickstream emission:
+   ```bash
+   kubectl set env deployment/redirect-edge EMIT_CLICKS=false -n $NS
+   ```
+   *Note: This causes data loss. Use only under SEV 1 with product approval.*
+4. If ClickHouse is the bottleneck (too many inserts), batch consumer commits to 5-second micro-batches instead of per-message inserts.
+
+### Verification
+- Consumer lag < 1,000 records per partition.
+- `RedirectEdge` memory stable and below 70 % limit.
+- ClickHouse `SELECT count() FROM clicks WHERE event_time > now() - 300` returns non-zero.
+
+---
+
+## Runbook: CDN Edge Stale Redirect & Cache Invalidation Failure
+
+**Applies to:** `CDNEdge`, `URLService`
+
+### Symptoms
+- Updated long URL not reflected; deleted short link still `301`s.
+- `Age` header on short link is > 24 hours despite a recent mutation.
+- `URLService` logs show `cdn_purge_failed` with status `503`.
+
+### Diagnosis
+1. Inspect response headers:
+   ```bash
+   curl -I -L -H "Host: r.example.com" https://cdn.example.com/abc123
+   # Check Age, Cache-Control, X-Cache
+   ```
+2. Check `URLService` purge queue depth or recent failures:
+   ```bash
+   kubectl logs -n $NS -l app=url-service --tail=200 | grep "purge"
+   ```
+
+### Mitigation
+1. **Manual surrogate key purge** for the affected short code:
+   ```bash
+   curl -X POST $CDN_PURGE_URL \
+     -H "Authorization: Bearer $CDN_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"surrogate_keys":["url:abc123"], "fastly_soft_purge":false}'
+   ```
+2. If deleting a URL, ensure `URLService` returns `404` with:
+   ```http
+   Cache-Control: max-age=0, no-store, private
+   ```
+   Then force purge again.
+3. If the CDN provider API is degraded, lower origin `Cache-Control` to 60 seconds until the API recovers:
+   ```bash
+   kubectl set env deployment/url-service DEFAULT_REDIRECT_TTL_SECONDS=60 -n $NS
+   ```
+
+### Verification
+- `curl -I` returns `Age: 0` and correct `Location` header.
+- No `HIT` from CDN on the stale URL after 30 seconds.
+
+---
+
+## Runbook: React SPA Static Asset Failure
+
+**Applies to:** `ReactSPA`, `CDNEdge`, `APIGateway`
+
+### Symptoms
+- Users report blank white screen after deploy.
+- Browser console shows `ChunkLoadError` or `404` on `.js`/`.css` files.
+- API calls from the SPA return CORS errors.
+
+### Diagnosis
+1. Verify object storage bucket contents match the build output:
+   ```bash
+   aws s3 ls s3://spa-assets-prod/static/js/ | grep main.
+   ```
+2. Check `index.html` script `src` hashes against actual chunk files.
+3. Test CORS preflight:
+   ```bash
+   curl -X OPTIONS -H "Origin: https://app.example.com" \
+     -H "Access-Control-Request-Method: POST" \
+     http://api-gateway-svc/api/urls -v
+   ```
+
+### Mitigation
+1. If `index.html` references non-existent chunks (failed deploy):
+   - **Rollback** the object storage bucket to the previous version immediately:
+     ```bash
+     aws s3 sync s3://spa-assets-prod/rollback-v$(cat LATEST_STABLE) s3://spa-assets-prod/ --delete
+     ```
+   - Purge CDN `index.html` only (leave chunks with hashed filenames intact to avoid cache poisoning):
+     ```bash
+     curl -X POST $CDN_PURGE_URL -d '{"urls":["https://app.example.com/index.html"]}'
+     ```
+2. If CORS is missing the SPA origin, patch `APIGateway` config:
+   ```bash
+   kubectl set env deployment/api-gateway CORS_ALLOWED_ORIGINS="https://app.example.com,https://app-cdn.example.com" -n $NS
+   ```
+
+### Verification
+- Lighthouse or `curl` fetches `index.html` and all referenced chunks return `200`.
+- `POST /api/urls` from browser returns `201` without CORS errors.
+
+---
+
+## Runbook: AuthService Login Degradation
+
+**Applies to:** `AuthService`, `MongoDBCluster`
+
+### Symptoms
+- Login/registration P99 > 3 s.
+- `AuthService` CPU pegged (bcrypt rounds).
+- MongoDB primary `globalLock.currentQueue.total` > 100.
+
+### Diagnosis
+1. Profile slow queries on the `users` collection:
+   ```bash
+   mongosh $MONGOS_URI --eval "db.users.find({ email: 'test@example.com' }).explain('executionStats')"
+   ```
+2. Check `authservice` latency:
+   ```bash
+   curl -s http://auth-service-svc:3000/metrics | grep 'http_request_duration_seconds{route="/login"}'
+   ```
+
+### Mitigation
+1. Scale `AuthService` horizontally (stateless):
+   ```bash
+   kubectl scale deployment auth-service -n $NS --replicas=10
+   ```
+2. If MongoDB primary is saturated by user lookups, temporarily allow `primaryPreferred` for the login existence check (read-only), while writes (password hash updates) still hit the primary.
+3. Increase JWT `exp` from 15 minutes to 60 minutes to reduce re-auth load during the incident:
+   ```bash
+   kubectl set env deployment/auth-service JWT_EXPIRY_MINUTES=60 -n $NS
+   ```
+
+### Verification
+- Login P99 < 500 ms.
+- MongoDB primary queue depth < 10.
+- No `MongoServerError: operation exceeded time limit` in `AuthService` logs.
+
+---
+
+## Escalation Matrix
+
+| Issue | Primary Owner | Escalation Path |
+|-------|--------------|-----------------|
+| Redirect / Cache miss storm | SRE On-Call | Platform Lead → VP Eng |
+| MongoDB primary failover | DBA On-Call | Data Platform Lead |
+| Redis Cluster split-brain | SRE On-Call | Platform Lead |
+| KGS counter exhaustion | Backend On-Call | Principal Architect |
+| CDN provider outage | SRE On-Call | Vendor TAM |
+| Kafka / Analytics lag | Data Eng On-Call | Data Platform Lead |
+
+---
+
+## Post-Incident Requirements
+
+1. Within 24 hours: Update this runbook if any command or threshold changed during the incident.
+2. Within 48 hours: Capture `kubectl logs --previous`, `mongodump` of the `counters` collection state, and Kafka consumer lag graphs into the incident tracker.
+3. Within 1 week: If a failure mode is missing from this list (e.g., a new OpenResty worker crash pattern), append a new runbook section with exact log regexes and remediation steps.

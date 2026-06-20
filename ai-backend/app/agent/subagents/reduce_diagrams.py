@@ -13,8 +13,8 @@ def reduce_diagrams_node(state: ArchitectGraphState) -> dict[str, Any]:
     LangGraph starts this node only when every Send worker has returned.
     """
     all_diagrams: list[DiagramEntry] = state.get("generated_diagrams", [])
-    valid_diagrams = [d for d in all_diagrams if d["content"] != "syntax_error"]
-    failed = [d for d in all_diagrams if d["content"] == "syntax_error"]
+    valid_diagrams = [d for d in all_diagrams if d.get("storage_key") and d.get("url")]
+    failed = [d for d in all_diagrams if not d.get("storage_key") or not d.get("url")]
 
     print(
         f"\n[reduce_diagrams] total={len(all_diagrams)} "

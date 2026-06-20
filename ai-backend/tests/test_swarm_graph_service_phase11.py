@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.models.swarm import SwarmDebateLog, SwarmSession
+from app.models.swarm import SwarmDebateLog, SwarmSession, SwarmSessionArtifact
 from app.services.swarm_graph_service import SwarmGraphService
 
 
@@ -35,6 +35,23 @@ class FakeAsyncGraph:
                 "component_list": ["API Gateway"],
                 "complexity_score": 4,
                 "diagram_plan": ["overview"],
+                "generated_diagrams": [
+                    {
+                        "diagram_type": "overview",
+                        "component_slug": "",
+                        "storage_key": "swarm-artifacts/thread-3/diagrams/iter1_overview.mmd",
+                        "url": "https://cdn.example/overview.mmd",
+                        "iteration": 1,
+                    }
+                ],
+                "generated_docs": [
+                    {
+                        "title": "System Overview",
+                        "component_slug": "",
+                        "storage_key": "swarm-artifacts/thread-3/docs/overview.md",
+                        "url": "https://cdn.example/overview.md",
+                    }
+                ],
                 "iteration_count": 2,
                 "next_agent": "END",
             },
@@ -94,6 +111,8 @@ def test_get_checkpoint_uses_async_state_and_shapes_payload() -> None:
     assert payload["component_list"] == ["API Gateway"]
     assert payload["complexity_score"] == 4
     assert payload["iteration_count"] == 2
+    assert payload["generated_diagrams"][0]["url"] == "https://cdn.example/overview.mmd"
+    assert "values" not in payload
 
 
 def test_run_creates_and_finalizes_swarm_session_with_debate_logs() -> None:
@@ -102,8 +121,23 @@ def test_run_creates_and_finalizes_swarm_session_with_debate_logs() -> None:
         {
             "thread_id": "thread-4",
             "complexity_score": 7,
-            "generated_diagrams": [{"path": "diagrams/thread-4/overview.mmd"}],
-            "generated_docs": [{"path": "reports/thread-4/overview.md"}],
+            "generated_diagrams": [
+                {
+                    "diagram_type": "overview",
+                    "component_slug": "",
+                    "storage_key": "swarm-artifacts/thread-4/diagrams/iter1_overview.mmd",
+                    "url": "https://cdn.example/thread-4/overview.mmd",
+                    "iteration": 1,
+                }
+            ],
+            "generated_docs": [
+                {
+                    "title": "System Overview",
+                    "component_slug": "",
+                    "storage_key": "swarm-artifacts/thread-4/docs/overview.md",
+                    "url": "https://cdn.example/thread-4/overview.md",
+                }
+            ],
             "debate_logs": [
                 {
                     "agent": "scalability",
@@ -120,6 +154,7 @@ def test_run_creates_and_finalizes_swarm_session_with_debate_logs() -> None:
 
     session = db.get(SwarmSession, "thread-4")
     logs = db.query(SwarmDebateLog).filter_by(thread_id="thread-4").all()
+    artifacts = db.query(SwarmSessionArtifact).filter_by(thread_id="thread-4").all()
     assert session is not None
     assert session.requirement == "Design a URL shortener"
     assert session.status == "done"
@@ -129,6 +164,12 @@ def test_run_creates_and_finalizes_swarm_session_with_debate_logs() -> None:
     assert len(logs) == 1
     assert logs[0].agent == "scalability"
     assert logs[0].status == "APPROVED"
+    assert len(artifacts) == 2
+    assert {artifact.artifact_type for artifact in artifacts} == {"diagram", "doc"}
+    assert {artifact.url for artifact in artifacts} == {
+        "https://cdn.example/thread-4/overview.mmd",
+        "https://cdn.example/thread-4/overview.md",
+    }
 
 
 def test_run_marks_swarm_session_failed_when_graph_raises() -> None:
@@ -164,7 +205,14 @@ def test_resume_updates_existing_swarm_session_from_graph_result() -> None:
             "thread_id": "thread-6",
             "complexity_score": 3,
             "generated_diagrams": [],
-            "generated_docs": [{"path": "reports/thread-6/overview.md"}],
+            "generated_docs": [
+                {
+                    "title": "System Overview",
+                    "component_slug": "",
+                    "storage_key": "swarm-artifacts/thread-6/docs/overview.md",
+                    "url": "https://cdn.example/thread-6/overview.md",
+                }
+            ],
             "debate_logs": [],
         }
     )
@@ -178,3 +226,97 @@ def test_resume_updates_existing_swarm_session_from_graph_result() -> None:
     assert session.complexity == 3
     assert session.diagram_count == 0
     assert session.doc_count == 1
+
+
+def test_get_session_returns_sql_summary_and_artifact_urls() -> None:
+    db = _session()
+    db.add(
+        SwarmSession(
+            thread_id="thread-7",
+            requirement="Design a URL shortener",
+            status="done",
+            complexity=5,
+            diagram_count=1,
+            doc_count=1,
+        )
+    )
+    db.add_all(
+        [
+            SwarmSessionArtifact(
+                thread_id="thread-7",
+                artifact_type="diagram",
+                storage_key="swarm-artifacts/thread-7/diagrams/iter1_overview.mmd",
+                url="https://cdn.example/thread-7/overview.mmd",
+                component_slug="",
+                name="overview",
+                iteration=1,
+            ),
+            SwarmSessionArtifact(
+                thread_id="thread-7",
+                artifact_type="doc",
+                storage_key="swarm-artifacts/thread-7/docs/overview.md",
+                url="https://cdn.example/thread-7/overview.md",
+                component_slug="",
+                name="System Overview",
+                iteration=1,
+            ),
+        ]
+    )
+    db.commit()
+    service = SwarmGraphService(FakeAsyncGraph())
+
+    payload = service.get_session("thread-7", db)
+
+    assert payload["thread_id"] == "thread-7"
+    assert payload["status"] == "done"
+    assert payload["generated_diagrams"][0]["storage_key"] == (
+        "swarm-artifacts/thread-7/diagrams/iter1_overview.mmd"
+    )
+    assert payload["generated_docs"][0]["url"] == "https://cdn.example/thread-7/overview.md"
+
+
+def test_mark_session_done_replaces_existing_artifact_rows() -> None:
+    db = _session()
+    db.add(
+        SwarmSession(
+            thread_id="thread-8",
+            requirement="Design a URL shortener",
+            status="running",
+        )
+    )
+    db.add(
+        SwarmSessionArtifact(
+            thread_id="thread-8",
+            artifact_type="diagram",
+            storage_key="old-key",
+            url="https://cdn.example/old.mmd",
+            component_slug="",
+            name="overview",
+            iteration=1,
+        )
+    )
+    db.commit()
+    service = SwarmGraphService(FakeAsyncGraph())
+
+    service._mark_session_done(
+        db,
+        "thread-8",
+        {
+            "complexity_score": 2,
+            "generated_diagrams": [
+                {
+                    "diagram_type": "overview",
+                    "component_slug": "",
+                    "storage_key": "swarm-artifacts/thread-8/diagrams/iter2_overview.mmd",
+                    "url": "https://cdn.example/thread-8/iter2_overview.mmd",
+                    "iteration": 2,
+                }
+            ],
+            "generated_docs": [],
+            "debate_logs": [],
+        },
+    )
+
+    artifacts = db.query(SwarmSessionArtifact).filter_by(thread_id="thread-8").all()
+    assert len(artifacts) == 1
+    assert artifacts[0].storage_key == "swarm-artifacts/thread-8/diagrams/iter2_overview.mmd"

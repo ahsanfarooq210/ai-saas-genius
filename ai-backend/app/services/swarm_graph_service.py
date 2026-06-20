@@ -10,7 +10,7 @@ from app.agent.graph_mermaid import (
 )
 from app.agent.run import build_checkpoint_payload, swarm_config
 from app.agent.state.schema import GlobalSwarmState
-from app.models.swarm import SwarmDebateLog, SwarmSession
+from app.models.swarm import SwarmDebateLog, SwarmSession, SwarmSessionArtifact
 
 
 def _empty_swarm_state(task_requirement: str, thread_id: str) -> GlobalSwarmState:
@@ -84,6 +84,60 @@ class SwarmGraphService:
         snapshot = await self._graph.aget_state(swarm_config(thread_id))
         return build_checkpoint_payload(thread_id, snapshot)
 
+    def get_session(self, thread_id: str, db: Session) -> dict[str, Any]:
+        session = db.get(SwarmSession, thread_id)
+        if session is None:
+            raise ValueError(f"Unknown thread_id: {thread_id}")
+
+        artifacts = (
+            db.query(SwarmSessionArtifact)
+            .filter(SwarmSessionArtifact.thread_id == thread_id)
+            .order_by(
+                SwarmSessionArtifact.artifact_type,
+                SwarmSessionArtifact.iteration,
+                SwarmSessionArtifact.id,
+            )
+            .all()
+        )
+        diagrams = [
+            {
+                "artifact_type": artifact.artifact_type,
+                "name": artifact.name,
+                "component_slug": artifact.component_slug,
+                "storage_key": artifact.storage_key,
+                "url": artifact.url,
+                "iteration": artifact.iteration,
+            }
+            for artifact in artifacts
+            if artifact.artifact_type == "diagram"
+        ]
+        docs = [
+            {
+                "artifact_type": artifact.artifact_type,
+                "name": artifact.name,
+                "component_slug": artifact.component_slug,
+                "storage_key": artifact.storage_key,
+                "url": artifact.url,
+                "iteration": artifact.iteration,
+            }
+            for artifact in artifacts
+            if artifact.artifact_type == "doc"
+        ]
+        return {
+            "thread_id": session.thread_id,
+            "requirement": session.requirement,
+            "status": session.status,
+            "complexity": session.complexity,
+            "diagram_count": session.diagram_count,
+            "doc_count": session.doc_count,
+            "created_at": session.created_at.isoformat() if session.created_at else None,
+            "completed_at": (
+                session.completed_at.isoformat() if session.completed_at else None
+            ),
+            "generated_diagrams": diagrams,
+            "generated_docs": docs,
+        }
+
     def list_graphs(self) -> list[dict[str, str | bool]]:
         return list_swarm_graphs()
 
@@ -141,6 +195,9 @@ class SwarmGraphService:
         db.query(SwarmDebateLog).filter(
             SwarmDebateLog.thread_id == thread_id,
         ).delete(synchronize_session=False)
+        db.query(SwarmSessionArtifact).filter(
+            SwarmSessionArtifact.thread_id == thread_id,
+        ).delete(synchronize_session=False)
         for entry in result.get("debate_logs") or []:
             db.add(
                 SwarmDebateLog(
@@ -149,6 +206,38 @@ class SwarmGraphService:
                     feedback=entry["feedback"],
                     status=entry["status"],
                     iteration=int(entry.get("iteration") or 0),
+                )
+            )
+        for entry in result.get("generated_diagrams") or []:
+            storage_key = entry.get("storage_key") or ""
+            url = entry.get("url") or ""
+            if not storage_key or not url:
+                continue
+            db.add(
+                SwarmSessionArtifact(
+                    thread_id=thread_id,
+                    artifact_type="diagram",
+                    storage_key=storage_key,
+                    url=url,
+                    component_slug=entry.get("component_slug") or "",
+                    name=entry["diagram_type"],
+                    iteration=int(entry.get("iteration") or 0),
+                )
+            )
+        for entry in result.get("generated_docs") or []:
+            storage_key = entry.get("storage_key") or ""
+            url = entry.get("url") or ""
+            if not storage_key or not url:
+                continue
+            db.add(
+                SwarmSessionArtifact(
+                    thread_id=thread_id,
+                    artifact_type="doc",
+                    storage_key=storage_key,
+                    url=url,
+                    component_slug=entry.get("component_slug") or "",
+                    name=entry["title"],
+                    iteration=None,
                 )
             )
         db.commit()

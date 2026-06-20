@@ -1,0 +1,88 @@
+## MongoDB
+
+### Responsibilities
+- Serve as the system of record for all durable data in the URL shortener platform.
+- Store user identity artifacts and credential hashes for the AuthService.
+- Maintain the canonical mapping of short codes to destination long URLs for the URLService.
+- Retain aggregated click statistics, temporal buckets, and referrer metadata produced by the AnalyticsService.
+- Enforce uniqueness constraints on short codes and user emails via unique indexes.
+- Support time-to-live (TTL) expiration for transient short links to limit unbounded data growth.
+- Provide atomic operators (e.g., `$inc`, `$set`) for high-concurrency analytics updates without full-document rewrite.
+
+### APIs / Interfaces
+- **Driver / ODM**: Official MongoDB Node.js Driver (v6.x) or Mongoose ODM v8.x, aligning with the MERN stack.
+- **Service Connections**:
+  - **AuthService**: Connects to the `users` collection. Internal model methods include `createUser()`, `findByEmail()`, and `updateLastLogin()`.
+  - **URLService**: Connects to the `urls` collection. Internal model methods include `createMapping()`, `findByShortCode()`, and `deactivateUrl()`.
+  - **AnalyticsService**: Connects to the `analytics` collection. Internal model methods include `incrementClicks()`, `upsertDailyBucket()`, and `aggregateStats()`.
+- **Connection Settings**:
+  - Replica set connection string: `mongodb://host1:27017,host2:27017/shortener?replicaSet=rs0`
+  - Pool size capped per microservice (e.g., `maxPoolSize: 50`) to prevent connection exhaustion.
+  - `retryWrites: true` enabled for all service connections to handle transient primary failover.
+- **Operational Interface**:
+  - `mongosh` for ad-hoc administrative queries and index management.
+  - MongoDB Compass or Atlas UI for schema analysis and query plan visualization.
+
+### Data Ownership
+Collections, field specifications, and indexing strategy:
+
+**Collection: `users`**
+| Field | Type | Index | Notes |
+|---|---|---|---|
+| `_id` | ObjectId | Primary key | |
+| `email` | String | Unique, ascending | Stored lowercase; regex-validated at app layer |
+| `passwordHash` | String | — | bcrypt hash; never plaintext |
+| `createdAt` | Date | — | |
+| `updatedAt` | Date | — | |
+
+**Collection: `urls`**
+| Field | Type | Index | Notes |
+|---|---|---|---|
+| `_id` | ObjectId | Primary key | |
+| `shortCode` | String | Unique, hashed (sharding) | 7–10 character base62 string |
+| `longUrl` | String | — | Validated URI format before insert |
+| `userId` | ObjectId | Compound `{ userId: 1, createdAt: -1 }` | Nullable for anonymous submissions |
+| `createdAt` | Date | — | |
+| `expiresAt` | Date | TTL index (`expireAfterSeconds: 0`) | Null indicates permanent link |
+| `isActive` | Boolean | — | Soft-delete flag; resolution checks this field |
+
+**Collection: `analytics` (time-series bucket pattern)**
+| Field | Type | Index | Notes |
+|---|---|---|---|
+| `_id` | ObjectId | Primary key | |
+| `shortCode` | String | Compound `{ shortCode: 1, date: -1 }` | |
+| `date` | Date | — | Daily bucket granularity (UTC midnight) |
+| `clicks` | Number | — | Total click count for the bucket |
+| `uniqueIpCount` | Number | — | Cardinality estimate or exact distinct count |
+| `referrers` | Object / Map | — | `{ "twitter.com": 120, ... }` |
+| `countries` | Object / Map | — | `{ "US": 450, ... }` |
+| `lastUpdatedAt` | Date | — | |
+
+### Failure Modes
+- **Replica Set Failover**: Loss of the primary triggers an election (typically 2–10 seconds). Without `retryWrites: true`, URLService create operations throw transient exceptions and surface 500s to the client until a new primary is elected.
+- **Hotspot Write Pressure**: A viral short code concentrates analytics writes on a single document. Unbucketed daily documents can max out single-document write throughput and cause replication lag.
+- **Duplicate Key Exception (E11000)**: Concurrent URLService threads generating identical short codes collide on the unique index. The service must catch `MongoServerError` code `11000` and regenerate the code.
+- **Working Set Exceeds RAM**: If the combined size of hot `urls` documents and their indexes exceeds available RAM, page faults spike and redirect resolution latency jumps from sub-millisecond to hundreds of milliseconds.
+- **TTL Cleanup Lag**: When insert velocity outpaces the TTL monitor thread, expired documents accumulate, bloating the working set and degrading index density.
+- **Disk Saturation**: Analytics aggregation pipelines scanning wide date ranges generate sustained high disk I/O. On shared volumes, this can starve the URLService’s point lookups and trigger cascading timeouts.
+
+### Scaling Considerations
+- **Sharding**:
+  - Shard the `urls` collection using a **hashed** `shortCode` index. This evenly distributes both read and write load and avoids monotonic write hotspots that would occur with an ObjectId shard key.
+  - If analytics volume exceeds single-node capacity, shard `analytics` by a compound shard key `{ shortCode: "hashed", date: 1 }` to colocate a single short code’s history while spreading different codes across shards.
+- **Read Replicas & Read Preference**:
+  - URLService redirect lookups use `readPreference: 'primaryPreferred'` to guarantee immediate consistency immediately after link creation.
+  - AnalyticsService aggregation pipelines run against secondaries (`readPreference: 'secondary'`) to isolate heavy scans from the critical redirect path.
+- **Index Optimization**:
+  - Covering index for redirect resolution: `{ shortCode: 1, longUrl: 1, isActive: 1 }` to satisfy URLService lookups entirely from the index.
+  - TTL index on `urls.expiresAt` with `expireAfterSeconds: 0` for automatic pruning.
+- **Memory Sizing**: Provision enough RAM to retain the `urls` collection indexes plus the most frequently accessed 20–30% of documents in WiredTiger cache. Monitor `serverStatus.wiredTiger.cache` “pages read into cache” for eviction pressure.
+- **Write Concern Tuning**:
+  - `users` inserts/updates: `w: 'majority'`, `j: true` to ensure durable credential storage.
+  - Analytics `$inc` operations: `w: 1` with `retryWrites: true` to favor throughput; transient loss of a single increment is acceptable in this domain.
+- **Operational Monitoring**:
+  - Track `opcounters`, `queries` execution stats, replication lag, and WiredTiger dirty/eviction rates via MongoDB Atlas or a Prometheus MongoDB Exporter.
+  - Enable automated cloud backups and point-in-time recovery to meet RPO targets under 5 minutes.
+
+## Related Diagrams
+No paired Mermaid diagram is provided for this component.

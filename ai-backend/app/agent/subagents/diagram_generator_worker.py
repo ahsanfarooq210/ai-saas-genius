@@ -1,4 +1,5 @@
 from app.agent.state.schema import DiagramEntry, DiagramWorkerState
+from app.agent.storage.file_store import artifact_store
 from app.agent.subagents.llm_reply import assistant_text
 from app.agent.tools.mermaid_linter import mermaid_linter
 from app.core.llm import get_chat_llm
@@ -33,21 +34,19 @@ class DiagramGenerator:
         ).strip()
 
     @staticmethod
-    def _diagram_path(state: DiagramWorkerState) -> str:
-        return (
-            f"diagrams/{state['thread_id']}/"
-            f"iter{state['iteration']}_{state['diagram_type']}.mmd"
-        )
-
-    @staticmethod
-    def _entry_update(state: DiagramWorkerState, *, content: str, path: str) -> dict:
+    def _entry_update(
+        state: DiagramWorkerState,
+        *,
+        storage_key: str,
+        url: str,
+    ) -> dict:
         return {
             "generated_diagrams": [
                 DiagramEntry(
                     diagram_type=state["diagram_type"],
                     component_slug=state["component_slug"],
-                    content=content,
-                    path=path,
+                    storage_key=storage_key,
+                    url=url,
                     iteration=state["iteration"],
                 )
             ]
@@ -85,10 +84,16 @@ class DiagramGenerator:
                     f"[diagram_generator] ✓ {diagram_type} valid "
                     f"(attempt {attempt + 1})"
                 )
+                stored = artifact_store.upload_diagram(
+                    thread_id=state["thread_id"],
+                    iteration=state["iteration"],
+                    diagram_type=state["diagram_type"],
+                    content=diagram_text,
+                )
                 return self._entry_update(
                     state,
-                    content=diagram_text,
-                    path=self._diagram_path(state),
+                    storage_key=stored.storage_key,
+                    url=stored.url,
                 )
 
             print(
@@ -114,4 +119,4 @@ class DiagramGenerator:
             f"[diagram_generator] ✗ {diagram_type} "
             f"failed after {_MAX_LINT_ATTEMPTS} attempts"
         )
-        return self._entry_update(state, content="syntax_error", path="")
+        return self._entry_update(state, storage_key="", url="")

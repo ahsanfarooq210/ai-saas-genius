@@ -17,15 +17,16 @@ def swarm_config(thread_id: str) -> dict:
 def diagram_checkpoint_items(
     diagrams: list[DiagramEntry] | None,
 ) -> list[dict[str, Any]]:
-    """Summarize generated diagrams for GET /state (no full Mermaid bodies)."""
+    """Summarize generated diagrams for GET /state."""
     items: list[dict[str, Any]] = []
     for entry in diagrams or []:
         items.append(
             {
                 "diagram_type": entry["diagram_type"],
                 "component_slug": entry.get("component_slug") or "",
-                "valid": entry["content"] != "syntax_error",
-                "path": entry.get("path") or "",
+                "valid": bool(entry.get("url")),
+                "storage_key": entry.get("storage_key") or "",
+                "url": entry.get("url") or "",
                 "iteration": entry.get("iteration", 0),
             }
         )
@@ -33,14 +34,15 @@ def diagram_checkpoint_items(
 
 
 def doc_checkpoint_items(docs: list[DocEntry] | None) -> list[dict[str, Any]]:
-    """Summarize generated docs for GET /state (no full Markdown bodies)."""
+    """Summarize generated docs for GET /state."""
     items: list[dict[str, Any]] = []
     for entry in docs or []:
         items.append(
             {
                 "title": entry["title"],
                 "component_slug": entry.get("component_slug") or "",
-                "path": entry.get("path") or "",
+                "storage_key": entry.get("storage_key") or "",
+                "url": entry.get("url") or "",
             }
         )
     return items
@@ -86,7 +88,6 @@ def build_checkpoint_payload(thread_id: str, snapshot: Any) -> dict[str, Any]:
         "security_feedback": values.get("security_feedback") or "",
         "debate_log_count": len(debate_logs),
         "debate_logs": debate_log_checkpoint_items(debate_logs),
-        "values": values,
     }
 
 

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: Optional[str] = None
     CLOUDINARY_API_KEY: Optional[str] = None
     CLOUDINARY_API_SECRET: Optional[str] = None
+    CLOUDINARY_ARTIFACT_FOLDER: str = "swarm-artifacts"
     # If unset, non-localhost hosts get sslmode=require (Neon/Supabase/RDS). Override with "disable" for local Docker, etc.
     LANGGRAPH_POSTGRES_SSLMODE: Optional[str] = None
 

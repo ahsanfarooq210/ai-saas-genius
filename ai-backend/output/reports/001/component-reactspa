@@ -1,0 +1,65 @@
+# ReactSPA
+
+## Responsibilities
+
+The ReactSPA is the user-facing single-page application that provides the interactive frontend for the URL shortener platform. Its specific responsibilities include:
+
+- **Authentication UI**: Rendering login and registration forms, capturing credentials, and initiating JWT-based sessions through the APIGateway.
+- **URL Shortening Workflow**: Providing a submission form for long URLs, sending creation requests to the APIGateway, and displaying the generated short code with a copy-to-clipboard action.
+- **Analytics Visualization**: Fetching aggregated click statistics from the backend and rendering charts, tables, and time-series graphs for each short link owned by the authenticated user.
+- **Client-Side Routing**: Managing in-app navigation between the dashboard, auth pages, and analytics detail views using a client-side router (e.g., React Router) without page reloads.
+- **Request Orchestration**: Attaching JWT access tokens to all authenticated API calls, handling loading states, and surfacing domain-specific errors to the user.
+- **Input Validation**: Enforcing client-side validation on URL formats and required fields before transmitting data to the APIGateway.
+
+## APIs and Interfaces
+
+The ReactSPA does not expose backend APIs; instead, it consumes RESTful endpoints served through the **APIGateway**. All communication is performed over HTTPS with JSON payloads.
+
+### Consumed Downstream Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/auth/register` | Submit new user credentials to the AuthService. |
+| `POST` | `/api/auth/login` | Authenticate and retrieve a JWT access token. |
+| `GET`  | `/api/auth/me` | Validate the current session and retrieve the user profile. |
+| `POST` | `/api/urls` | Submit a long URL for shortening; returns the short code. |
+| `GET`  | `/api/urls` | Retrieve a paginated list of short links created by the logged-in user. |
+| `GET`  | `/api/urls/:shortCode/analytics` | Fetch click statistics (total clicks, geographic data, timestamps) for a specific short code. |
+
+### Internal Module Boundaries
+
+- **Pages**: `LoginPage`, `RegisterPage`, `DashboardPage`, `AnalyticsDetailPage`
+- **Shared Components**: `UrlSubmitForm`, `LinkListTable`, `ClickChart`, `CopyButton`, `ErrorBoundary`
+- **Custom Hooks**: `useAuth()` (manages JWT and session state), `useApi()` (centralized axios/fetch instance with interceptors for base URL and token injection)
+- **Configuration**: Runtime-configurable `API_GATEWAY_BASE_URL` injected at startup to avoid environment-specific builds.
+
+## Data Ownership
+
+The ReactSPA maintains **only transient, client-side state** and is not a system of record.
+
+- **Authentication Tokens**: Stores the JWT access token in application memory (via React Context or state management library) for inclusion in the `Authorization: Bearer <token>` header. No refresh token mechanism is modeled in this architecture; token expiry requires re-authentication.
+- **User Profile Cache**: Holds the deserialized user object returned from `GET /api/auth/me` to conditionally render UI elements.
+- **URL Registry Cache**: Maintains a local cache of the user’s short links and analytics responses to enable optimistic UI updates and reduce redundant API calls.
+- **Form and UI State**: Tracks controlled input values for URL submission, pagination cursors for analytics tables, and visual loading/error states.
+- **Ephemeral Data**: All client data is lost on browser refresh unless explicitly re-fetched from the APIGateway.
+
+## Failure Modes
+
+| Failure | Cause | Impact | Mitigation |
+|---------|-------|--------|------------|
+| **APIGateway Timeout** | Network partition or high latency between client and gateway. | UI hangs; user cannot create links or view analytics. | Implement request timeouts (e.g., 10 seconds) and display retry buttons with exponential backoff. |
+| **401 Unauthorized** | JWT expired or invalid. | Authenticated API calls fail; user sees stale data. | Intercept 401 responses, clear the token from client state, and redirect to the login page. |
+| **429 Too Many Requests** | Client exceeds APIGateway rate limits. | URL creation or analytics loading is temporarily blocked. | Surface a user-visible rate-limit warning and disable submission buttons until the `Retry-After` window elapses. |
+| **CORS Policy Block** | APIGateway omits correct `Access-Control-Allow-Origin` headers. | Browser preflight requests fail; SPA cannot communicate with backend. | Ensure APIGateway is configured to allow the SPA’s origin and required HTTP methods. |
+| **XSS via Malicious URLs** | A shortened URL contains a JavaScript payload and is rendered unsanitized in the UI. | Script execution in the user’s browser, potentially leaking the JWT. | Sanitize all URL strings with a library like DOMPurify before rendering; use `rel="noopener noreferrer"` on external links. |
+| **Large Analytics Payload** | A popular short link generates massive click history returned by the API. | Browser main thread freezes during render. | Enforce server-side pagination and aggregation; render lists with windowing (e.g., `react-window`) and offload chart computation to Web Workers if necessary. |
+| **Token Storage Leakage** | JWT stored in `localStorage` is exfiltrated via injected malicious scripts. | Account takeover. | Store the access token in memory only; accept that a full page refresh requires re-login given the absence of a refresh-token flow. |
+
+## Scaling Considerations
+
+- **Static Asset Delivery**: The compiled React bundle (HTML, JS, CSS, and media) must be served from a CDN or dedicated object storage (e.g., S3 + CloudFront) rather than through the APIGateway. This offloads traffic from the application tier and improves global Time-to-Interactive.
+- **Code Splitting**: The analytics dashboard and charting dependencies should be loaded via dynamic `import()` and React lazy loading to reduce the initial JavaScript bundle size. Route-based splitting is recommended for `/analytics`.
+- **Client-Side Caching Strategy**: Use a stale-while-revalidate data fetching library (e.g., React Query or SWR) to cache `GET /api/urls` and analytics responses in memory, reducing redundant calls to the APIGateway during component re-mounts.
+- **Runtime Configuration**: Inject the APIGateway base URL and feature flags via a `config.json` fetched at app bootstrap rather than baking them into the Webpack build. This enables a single build artifact to be promoted across development, staging, and production environments.
+- **HTTP/2 and Connection Reuse**: Ensure the CDN and APIGateway support HTTP/2 so the browser can multiplex multiple API requests over a single TLS connection, lowering latency for dashboard-heavy views.
+- **Horizontal Scaling of the Tier**: Because the ReactSPA is a stateless static frontend, horizontal scaling is achieved by adding more CDN edge locations or increasing origin server capacity for the static file host—not by scaling the SPA code itself.
