@@ -2,8 +2,19 @@
 
 from types import SimpleNamespace
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+
 from app.db.alembic_filters import include_object
 from app.db.base import Base
+from app.db.migration_check import (
+    REQUIRED_APP_TABLES,
+    REQUIRED_TABLES_MISSING,
+    validate_required_app_tables,
+)
 
 
 def test_swarm_persistence_tables_are_registered_with_base_metadata() -> None:
@@ -21,3 +32,36 @@ def test_alembic_includes_public_schema_objects() -> None:
     obj = SimpleNamespace(schema=None)
 
     assert include_object(obj, "sessions", "table", False, None) is True
+
+
+def test_phase11_migration_chains_after_existing_users_revision() -> None:
+    script = ScriptDirectory.from_config(Config("alembic.ini"))
+
+    existing_users_revision = script.get_revision("7ff644cccf7c")
+    phase11_revision = script.get_revision("001_initial_swarm_persistence")
+
+    assert existing_users_revision is not None
+    assert phase11_revision.down_revision == "7ff644cccf7c"
+
+
+def test_required_app_table_validation_reports_missing_tables() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    with pytest.raises(RuntimeError, match=REQUIRED_TABLES_MISSING):
+        validate_required_app_tables(engine)
+
+
+def test_required_app_table_validation_passes_when_tables_exist() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+
+    validate_required_app_tables(engine)
+    assert REQUIRED_APP_TABLES == frozenset({"users", "sessions", "debate_logs"})

@@ -52,9 +52,9 @@ flowchart TB
 
 | Layer | Responsibility | Key files |
 |-------|----------------|-----------|
-| API | Validate request, offload sync `invoke` to thread pool | `app/api/v1/endpoints/swarm.py` |
-| Service | Compile graph once, empty initial state, checkpoint config | `app/services/swarm_graph_service.py` |
-| Parent graph | Route between phases; own `MemorySaver` | `app/agent/graphs/supervisor_graph.py` |
+| API | Validate request, pass DB session, await async service calls | `app/api/v1/endpoints/swarm.py` |
+| Service | Empty initial state, async graph calls, app metadata writes | `app/services/swarm_graph_service.py` |
+| Parent graph | Route between phases; runtime graph receives Postgres checkpointer | `app/agent/graphs/supervisor_graph.py` |
 | Subgraphs | Architect (draft + diagrams) and docs (Markdown) | `architect_graph.py`, `doc_generator_graph.py` |
 | Subagents | Prompts, structured output, node bodies | `app/agent/subagents/` |
 | State types | `GlobalSwarmState`, subgraph states, worker states | `app/agent/state/schema.py` |
@@ -97,7 +97,7 @@ START → supervisor_node → [conditional] → architect_graph | doc_generator_
 
 **Iteration cap:** `supervisor_node` increments `iteration_count` each lap. The **fifth** supervisor pass still routes normally; the circuit breaker forces `END` only once `iteration_count > 5` (`MAX_ITERATIONS`). This lets a rejection-driven architect rerun reach the doc phase instead of ending with cleared docs.
 
-**Checkpointer:** `MemorySaver` on the parent graph. Config: `{"configurable": {"thread_id": "<id>"}}` via [`swarm_config()`](../../app/agent/run.py).
+**Checkpointer:** runtime graph uses LangGraph Postgres checkpointing from [`app/db/checkpointer.py`](../../app/db/checkpointer.py). Config: `{"configurable": {"thread_id": "<id>"}}` via [`swarm_config()`](../../app/agent/run.py). See [phase-11-postgres-persistence.md](phase-11-postgres-persistence.md) for the full implementation details.
 
 ---
 

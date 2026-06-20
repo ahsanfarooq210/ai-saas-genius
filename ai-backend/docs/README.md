@@ -21,7 +21,8 @@ Read these in order if you are new to the swarm:
 | 2 | [flows/state-merge-and-artifacts.md](flows/state-merge-and-artifacts.md) | **Critical:** parent vs subgraph state, reducers, resets — avoids duplicate artifacts |
 | 3 | [flows/swarm-graph-overview.md](flows/swarm-graph-overview.md) | Node-by-node topology, `Send` fan-out, module map |
 | 4 | [current/project-state.md](current/project-state.md) | API routes, gaps, files that are not wired |
-| 5 | [architecture/plan.md](architecture/plan.md) | Target / roadmap (not guaranteed to match live code) |
+| 5 | [current/phase-11-postgres-persistence.md](current/phase-11-postgres-persistence.md) | Current Postgres checkpointer, app tables, and persistence logic |
+| 6 | [architecture/plan.md](architecture/plan.md) | Target / roadmap (not guaranteed to match live code) |
 
 **Deep dives (optional):**
 
@@ -30,6 +31,7 @@ Read these in order if you are new to the swarm:
 
 **Recent change:**
 
+- [current/phase-11-postgres-persistence.md](current/phase-11-postgres-persistence.md) — Phase 11 Postgres checkpointing and app metadata tables
 - [changes/2026-05-30-subgraph-artifact-merge-fix.md](changes/2026-05-30-subgraph-artifact-merge-fix.md) — fix for duplicate diagrams/docs in API responses
 
 ---
