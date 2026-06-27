@@ -175,6 +175,16 @@ Full definitions: [`schema.py`](../../app/agent/state/schema.py). Merge rules: [
 | `debate_logs` | plain list | — | — |
 | `docs_complete` | bool | read/write | set `True` in reduce |
 
+### Artifact entry shapes
+
+| Type | Fields |
+|------|--------|
+| `DiagramEntry` | `diagram_type`, `component_slug`, `storage_key`, `url`, `iteration` |
+| `DocEntry` | `title`, `component_slug`, `storage_key`, `url` |
+| `DebateLogEntry` | `agent`, `feedback`, `status`, `iteration` |
+
+Workers upload Mermaid/Markdown to Cloudinary via [`artifact_store`](../../app/agent/storage/file_store.py); state holds delivery metadata, not raw file bodies.
+
 ---
 
 ## 8. API and service
@@ -204,9 +214,10 @@ sequenceDiagram
 | Routes | [`app/api/v1/endpoints/swarm.py`](../../app/api/v1/endpoints/swarm.py) |
 | Service | [`app/services/swarm_graph_service.py`](../../app/services/swarm_graph_service.py) |
 | Schemas | [`app/schemas/swarm.py`](../../app/schemas/swarm.py) |
+| Graph Mermaid | [`app/agent/graph_mermaid.py`](../../app/agent/graph_mermaid.py) |
 | Checkpoint | [`build_checkpoint_payload`](../../app/agent/run.py) |
 
-After a successful full run expect `docs_complete: true` and no duplicate `path` entries in artifact lists.
+After a successful full run expect `docs_complete: true` and no duplicate `storage_key` entries in artifact lists.
 
 ---
 
@@ -230,14 +241,20 @@ flowchart TB
     dgw[document_generator_worker.py]
     rdoc[reduce_docs.py]
     supr[supervisor_router.py]
+    scale[scalability_expert.py]
+    sec[security_auditor.py]
   end
-  subgraph other["state / storage / tools"]
+  subgraph other["state / storage / tools / introspection"]
     schema[state/schema.py]
     fs[storage/file_store.py]
     lint[tools/mermaid_linter.py]
+    gm[graph_mermaid.py]
   end
   sup --> arch
   sup --> doc
+  sup --> supr
+  sup --> scale
+  sup --> sec
   arch --> prep
   arch --> la
   arch --> ca
@@ -248,7 +265,12 @@ flowchart TB
   doc --> dpl
   doc --> dgw
   doc --> rdoc
-  sup --> supr
+  dg --> fs
+  dg --> lint
+  dgw --> fs
+  gm --> sup
+  gm --> arch
+  gm --> doc
 ```
 
 ---

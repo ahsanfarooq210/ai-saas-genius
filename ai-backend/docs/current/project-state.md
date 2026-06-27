@@ -16,10 +16,10 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 
 | File | Role |
 |------|------|
-| `app/main.py` | App lifespan, service registration |
+| `app/main.py` | App lifespan, Postgres checkpointer, service registration |
 | `app/api/v1/router.py` | Route registration |
 | `app/api/v1/endpoints/swarm.py` | Swarm HTTP handlers |
-| `app/services/swarm_graph_service.py` | Graph compile-once, invoke/resume |
+| `app/services/swarm_graph_service.py` | Async graph invoke/resume, checkpoint payload, app metadata writes |
 | `app/agent/run.py` | Checkpoint payload shaping |
 | `app/agent/graphs/` | Parent + subgraph topology |
 | `app/agent/state/schema.py` | All state `TypedDict`s |
@@ -29,9 +29,11 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 ## Runtime flow
 
 1. `POST /api/v1/swarm/run` or `resume` in `swarm.py`
-2. `SwarmGraphService` invokes `supervisor_graph` with `_empty_swarm_state`
-3. Graph runs until `END` or iteration cap
-4. Response validated as `SwarmRunResponse` / `SwarmCheckpointResponse`
+2. `SwarmGraphService` writes a `sessions` row as `running`
+3. `SwarmGraphService` invokes the compiled supervisor graph with `_empty_swarm_state`
+4. Graph runs until `END` or iteration cap
+5. `SwarmGraphService` updates `sessions` and mirrors final `debate_logs`
+6. Response validated as `SwarmRunResponse` / `SwarmCheckpointResponse`
 
 ---
 
@@ -45,7 +47,8 @@ START → supervisor_node → [conditional] → architect_graph | doc_generator_
 (each branch) → supervisor_node
 ```
 
-- Cyclic supervisor with `MemorySaver` checkpointer
+- Cyclic supervisor with a Postgres LangGraph checkpointer in runtime
+- Checkpoint-free module-level graph is kept for Mermaid topology rendering
 - Routing: `app/agent/subagents/supervisor_router.py` (no LLM)
 - `MAX_ITERATIONS = 5` in `supervisor_node`; pass 6 forces `END`, so pass 5 can still route pending doc regeneration
 
@@ -107,18 +110,23 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 | `POST` | `/api/v1/swarm/run` |
 | `POST` | `/api/v1/swarm/resume` |
 | `GET` | `/api/v1/swarm/state/{thread_id}` |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}` |
+| `GET` | `/api/v1/swarm/graphs` |
+| `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` |
 | `GET` | `/health` |
 
-Graph introspection (Mermaid export) may exist on swarm routes — confirm in `app/api/v1/endpoints/swarm.py`.
+Graph introspection is backed by [`app/agent/graph_mermaid.py`](../../app/agent/graph_mermaid.py) (`supervisor`, `architect`, `doc_generator`).
 
 ---
 
 ## Artifacts
 
-| Type | State | Disk |
-|------|-------|------|
-| Diagrams | `DiagramEntry` in `generated_diagrams` | `FileStore.save_diagram` exists; workers do not call it yet |
-| Docs | `DocEntry` in `generated_docs` | `output/reports/{thread_id}/*.md` |
+| Type | State fields | Persistent store |
+|------|--------------|------------------|
+| Diagrams | `DiagramEntry`: `diagram_type`, `component_slug`, `storage_key`, `url`, `iteration` | Cloudinary via [`artifact_store.upload_diagram`](../../app/agent/storage/file_store.py) |
+| Docs | `DocEntry`: `title`, `component_slug`, `storage_key`, `url` | Cloudinary via [`artifact_store.upload_doc`](../../app/agent/storage/file_store.py) |
+
+Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/main.py).
 
 ---
 
@@ -138,9 +146,8 @@ Graph introspection (Mermaid export) may exist on swarm routes — confirm in `a
 
 **Roadmap / not production-complete:**
 
-- Persistent debate logs (Postgres)
-- Diagram files on disk from workers
 - Full auth API (README may mention scaffolded auth not wired in router)
+- Phase 12 SSE streaming and human-feedback interrupts
 
 ---
 
@@ -148,8 +155,8 @@ Graph introspection (Mermaid export) may exist on swarm routes — confirm in `a
 
 | Layer | Should contain |
 |-------|----------------|
-| API | Validation, `asyncio.to_thread`, response models |
-| Service | Graph lifetime, empty state, checkpoint |
+| API | Validation, async service calls, response models |
+| Service | Async graph calls, empty state, checkpoint payload, app metadata writes |
 | `graphs/` | Topology only |
 | `subagents/` | Prompts, node logic, structured output |
 | `state/schema.py` | TypedDict contracts |

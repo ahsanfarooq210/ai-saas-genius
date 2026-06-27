@@ -8,7 +8,7 @@ Implementation reference for document fan-out in `app/agent/`. If this disagrees
 
 ## 1. Goal
 
-After the architect subgraph produces `generated_diagrams`, fan out **one document worker per `doc_plan` entry**, merge into `DocGraphState.generated_docs` via `operator.add`, persist Markdown to disk, and set **`docs_complete`** for supervisor routing.
+After the architect subgraph produces `generated_diagrams`, fan out **one document worker per `doc_plan` entry**, merge into `DocGraphState.generated_docs` via `operator.add`, persist Markdown to Cloudinary, and set **`docs_complete`** for supervisor routing.
 
 ---
 
@@ -50,9 +50,9 @@ Wiring: [`doc_generator_graph.py`](../../app/agent/graphs/doc_generator_graph.py
 | [`doc_generator_graph.py`](../../app/agent/graphs/doc_generator_graph.py) | Topology |
 | [`artifact_reset.py`](../../app/agent/subagents/artifact_reset.py) | `prepare_doc_artifacts_node` |
 | [`doc_planner.py`](../../app/agent/subagents/doc_planner.py) | `list[Send]` from `doc_plan` |
-| [`document_generator_worker.py`](../../app/agent/subagents/document_generator_worker.py) | LLM + pairing + disk |
+| [`document_generator_worker.py`](../../app/agent/subagents/document_generator_worker.py) | LLM + pairing + Cloudinary upload |
 | [`reduce_docs.py`](../../app/agent/subagents/reduce_docs.py) | `Overwrite(all_docs)`, `docs_complete=True` |
-| [`storage/file_store.py`](../../app/agent/storage/file_store.py) | `output/reports/...` |
+| [`storage/file_store.py`](../../app/agent/storage/file_store.py) | `ArtifactStore` — Cloudinary raw uploads |
 | [`schema.py`](../../app/agent/state/schema.py) | `DocGraphState`, `DocWorkerState` |
 
 ---
@@ -88,7 +88,7 @@ def doc_planner_node(state: DocGraphState) -> list[Send]:
 
 1. [`_find_paired_diagram`](../../app/agent/subagents/document_generator_worker.py) for slug / overview
 2. LLM Markdown (`get_chat_llm`, `assistant_text`)
-3. [`file_store.save_doc`](../../app/agent/storage/file_store.py) → `output/reports/{thread_id}/{filename}`
+3. [`artifact_store.upload_doc`](../../app/agent/storage/file_store.py) → Cloudinary raw asset; `DocEntry` carries `storage_key` + `url`
 4. Return `{"generated_docs": [DocEntry(...)]}` — subgraph reducer appends
 
 **Live pairing note:** `slug_from_doc_filename("component-api-gateway.md")` currently returns `component-api-gateway`, while diagram workers store `component_slug="api-gateway"`. That means overview pairing works, but component docs do not currently resolve a direct paired component diagram by exact slug.
@@ -156,7 +156,7 @@ sequenceDiagram
 | 3 | Subgraph reducer | `tests/test_reducer_phase8.py` |
 | 4 | No parent duplication | `tests/test_subgraph_artifact_accumulation.py` |
 | 5 | `docs_complete` true after doc phase | API / checkpoint |
-| 6 | Disk files | `output/reports/{thread_id}/*.md` |
+| 6 | Cloudinary assets | `DocEntry.storage_key` / `url` populated |
 
 ---
 

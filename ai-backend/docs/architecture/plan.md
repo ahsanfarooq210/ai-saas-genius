@@ -7,7 +7,7 @@
 > - [flows/state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md)
 > - [current/project-state.md](../current/project-state.md)
 >
-> **State merge (implemented 2026-05-30):** Reducers for `generated_diagrams` / `generated_docs` belong on **subgraph** state (`ArchitectGraphState`, `DocGraphState`), not on parent `GlobalSwarmState`. See [changes/2026-05-30-subgraph-artifact-merge-fix.md](../changes/2026-05-30-subgraph-artifact-merge-fix.md). Sections below that still show `operator.add` on `GlobalSwarmState` are **outdated** until updated to match subgraph-local reducers.
+> **State merge (implemented 2026-05-30):** Reducers for `generated_diagrams` / `generated_docs` belong on **subgraph** state (`ArchitectGraphState`, `DocGraphState`), not on parent `GlobalSwarmState`. See [changes/2026-05-30-subgraph-artifact-merge-fix.md](../changes/2026-05-30-subgraph-artifact-merge-fix.md).
 >
 > Before changing runtime code, compare with: `app/main.py`, `app/services/swarm_graph_service.py`, `app/agent/graphs/`, `app/agent/state/schema.py`.
 
@@ -50,14 +50,16 @@ The number of diagrams and documents is **not known at design time** — it is d
 flowchart TD
     START([START]) --> SUPERVISOR
 
-    SUPERVISOR["🧠 Supervisor Router\nGPT-4o-mini · evaluates full state"]
+    SUPERVISOR["Supervisor Router\nDeterministic Python\nincrements iteration_count\nsets next_agent"]
 
     %% ─── ROUTING DECISIONS ───
-    SUPERVISOR -->|no architecture yet| ARCHITECT_GRAPH
-    SUPERVISOR -->|architecture done, no docs| DOC_GRAPH
-    SUPERVISOR -->|scalability empty or REJECTED| SCALABILITY
-    SUPERVISOR -->|security empty or REJECTED| SECURITY
-    SUPERVISOR -->|all approved or count ≥ 5| END_NODE([END])
+    SUPERVISOR -->|no component_list| ARCHITECT_GRAPH
+    SUPERVISOR -->|docs_complete false| DOC_GRAPH
+    SUPERVISOR -->|scalability REJECTED| ARCHITECT_GRAPH
+    SUPERVISOR -->|scalability empty| SCALABILITY
+    SUPERVISOR -->|security REJECTED| ARCHITECT_GRAPH
+    SUPERVISOR -->|security empty| SECURITY
+    SUPERVISOR -->|all reviewed or iteration > 5| END_NODE([END])
 
     %% ══════════════════════════════════════
     %% ARCHITECT SUB-GRAPH
@@ -65,28 +67,23 @@ flowchart TD
     subgraph ARCHITECT_GRAPH["Architect Sub-Graph"]
         direction TB
 
-        DRAFT["✏️ Draft High-Level Architecture\nGPT-4o · identifies all components\noutputs component_list + architecture_json"]
+        PREP_ARCH["prepare_architect_artifacts_node\nOverwrite generated_diagrams = []\nclear generated_docs\ndocs_complete = false"]
 
-        COMPLEXITY["🔍 Complexity Analyzer\nGPT-4o-mini · scores complexity 1–10\nextracts subsystems and relationships\ndecides diagram_plan + doc_plan"]
+        DRAFT["draft_architecture_node\nLeadArchitect\nwrites architecture_json\ncomponent_list\ncurrent_architecture_mermaid\nclears rejected feedback on rerun"]
 
-        DIAGRAM_PLANNER["📐 Diagram Planner\nbuilds list of diagrams to generate\ne.g. overview · auth-flow · db-schema\n· infra · data-pipeline · etc."]
+        COMPLEXITY["score_complexity_node\nComplexityAnalyzer\nwrites complexity_score\ndiagram_plan\ndoc_plan"]
 
-        %% MAP phase — fan out
-        DIAGRAM_PLANNER -->|fan out N diagrams| DIAG_MAP["⚡ Map: Generate N Diagrams\n(parallel LangGraph Send API)\none node invocation per diagram"]
+        DIAGRAM_ROUTER{"diagram_planner_node\nconditional edge router\nreturns list[Send]"}
 
-        DIAG_MAP --> DIAG_GEN["✏️ Diagram Generator Node\nGPT-4o · generates one Mermaid diagram\nper component / subsystem"]
+        DIAG_GEN["diagram_generator_node x N\nparallel Send workers\nLLM generates one Mermaid diagram\nlint/retry loop inside worker\nuploads diagram artifact\nreturns one DiagramEntry"]
 
-        DIAG_GEN --> LINTER["🔧 Mermaid Linter\nvalidates syntax per diagram"]
-        LINTER -->|errors · max 3x| DIAG_GEN
-        LINTER -->|valid ✓| DIAG_REDUCE
+        DIAG_REDUCE["reduce_diagrams_node\nwaits for all workers\nfilters failed uploads\nOverwrite generated_diagrams"]
 
-        %% REDUCE phase — collect
-        DIAG_REDUCE["🗂️ Reduce: Collect All Diagrams\nmerges all valid diagrams\ninto generated_diagrams list"]
+        ARCH_END([Architect END])
 
-        WRITE_STATE["💾 Write to Global State\ncurrent_architecture_mermaid\ngenerated_diagrams\ncomponent_list\ncomplexity_score"]
-
-        DRAFT --> COMPLEXITY --> DIAGRAM_PLANNER
-        DIAG_REDUCE --> WRITE_STATE
+        PREP_ARCH --> DRAFT --> COMPLEXITY --> DIAGRAM_ROUTER
+        DIAGRAM_ROUTER -->|Send per diagram_plan entry| DIAG_GEN
+        DIAG_GEN --> DIAG_REDUCE --> ARCH_END
     end
 
     %% ══════════════════════════════════════
@@ -95,28 +92,31 @@ flowchart TD
     subgraph DOC_GRAPH["Document Generator Sub-Graph"]
         direction TB
 
-        DOC_PLANNER["📋 Doc Planner\nGPT-4o-mini · reads component_list\nand complexity_score\ndecides which docs to generate\ne.g. overview · per-component · ADRs · runbooks"]
+        PREP_DOC["prepare_doc_artifacts_node\nOverwrite generated_docs = []\ndocs_complete = false"]
 
-        %% MAP phase — fan out docs
-        DOC_PLANNER -->|fan out M docs| DOC_MAP["⚡ Map: Generate M Documents\n(parallel LangGraph Send API)\none node per document"]
+        DOC_ROUTER{"doc_planner_node\nconditional edge router\nreturns list[Send]"}
 
-        DOC_MAP --> DOC_GEN["📝 Document Generator Node\nGPT-4o · generates one Markdown doc\nper component / concern"]
+        DOC_GEN["document_generator_node x M\nparallel Send workers\nLLM generates one Markdown doc\nuploads doc artifact\nreturns one DocEntry"]
 
-        DOC_GEN --> DOC_REDUCE["🗂️ Reduce: Collect All Docs\nmerges into generated_docs list\nsaves each to file store"]
+        DOC_REDUCE["reduce_docs_node\nwaits for all workers\nOverwrite generated_docs\ndocs_complete = true"]
 
-        DOC_REDUCE --> WRITE_DOCS["💾 Write to Global State\ngenerated_docs\ndocs_complete = true"]
+        DOC_END([Doc END])
+
+        PREP_DOC --> DOC_ROUTER
+        DOC_ROUTER -->|Send per doc_plan entry| DOC_GEN
+        DOC_GEN --> DOC_REDUCE --> DOC_END
     end
 
     %% ══════════════════════════════════════
     %% REVIEWER NODES (plain nodes, NOT sub-graphs)
     %% ══════════════════════════════════════
-    SCALABILITY["📊 Scalability Expert\nGPT-4o · reads ALL diagrams + docs\nSPOF · TPS · bottlenecks\n→ APPROVED or REJECTED + fixes"]
+    SCALABILITY["scalability_node\nreads architecture, diagrams, docs\nwrites scalability_feedback\nappends debate_logs"]
 
-    SECURITY["🔒 Security Auditor\nGPT-4o · reads ALL diagrams + docs\nzero-trust · WAF · VPC · encryption\n→ APPROVED or REJECTED + fixes"]
+    SECURITY["security_node\nreads architecture, diagrams, docs\nwrites security_feedback\nappends debate_logs"]
 
     %% ─── RETURN EDGES ───
-    WRITE_STATE -->|returns to parent| SUPERVISOR
-    WRITE_DOCS  -->|returns to parent| SUPERVISOR
+    ARCH_END -->|compiled subgraph returns| SUPERVISOR
+    DOC_END  -->|compiled subgraph returns| SUPERVISOR
     SCALABILITY -->|writes scalability_feedback| SUPERVISOR
     SECURITY    -->|writes security_feedback| SUPERVISOR
 ```
@@ -131,19 +131,20 @@ Shared across ALL agents via the Supervisor. Lives in `schema.py`. Every field m
 
 ```python
 # schema.py
-from typing import TypedDict, Annotated
-import operator
+from typing import TypedDict
 
 class DiagramEntry(TypedDict):
     diagram_type: str        # e.g. "overview", "auth-flow", "db-schema"
-    content:      str        # raw Mermaid string
-    path:         str        # R2/S3 key — e.g. "diagrams/{thread_id}/v2_overview.mmd"
+    component_slug: str      # component-scoped slug, or "" for cross-cutting diagrams
+    storage_key: str         # stored Mermaid artifact key
+    url:         str         # public delivery URL
     iteration:    int        # which swarm iteration produced this
 
 class DocEntry(TypedDict):
     title:   str             # e.g. "Auth Service — Component Overview"
-    content: str             # raw Markdown string
-    path:    str             # R2/S3 key — e.g. "reports/{thread_id}/auth-service.md"
+    component_slug: str      # pairs with DiagramEntry, or "" for overview / ADR / runbook
+    storage_key: str         # stored Markdown artifact key
+    url:    str              # public delivery URL
 
 class GlobalSwarmState(TypedDict):
     # ── Core input ──────────────────────────────────────────
@@ -160,9 +161,9 @@ class GlobalSwarmState(TypedDict):
     doc_plan:                     list[str]     # ["overview.md", "auth-service.md", ...]
 
     # ── Generated artifacts ──────────────────────────────────
-    # Annotated with operator.add so parallel Send() nodes can append safely
-    generated_diagrams:           Annotated[list[DiagramEntry], operator.add]
-    generated_docs:               Annotated[list[DocEntry], operator.add]
+    # Plain lists on parent state. Subgraph reducers own parallel accumulation.
+    generated_diagrams:           list[DiagramEntry]
+    generated_docs:               list[DocEntry]
 
     # ── Review feedback ──────────────────────────────────────
     scalability_feedback:         str           # Markdown critique OR "APPROVED"
@@ -174,7 +175,7 @@ class GlobalSwarmState(TypedDict):
     next_agent:                   str           # routing flag set by Supervisor
 ```
 
-> **Critical**: `generated_diagrams` and `generated_docs` use `Annotated[list, operator.add]`. This is mandatory for the Map-Reduce pattern — without it, parallel `Send()` invocations will overwrite each other instead of merging results.
+> **Critical**: `generated_diagrams` and `generated_docs` are plain lists on `GlobalSwarmState`. The `operator.add` reducers live on `ArchitectGraphState.generated_diagrams` and `DocGraphState.generated_docs`, where parallel `Send()` workers merge. Reduce nodes use `Overwrite(...)` when replacing the accumulated list to avoid duplicating artifacts.
 
 ### 3.2 Architect Internal State
 
@@ -200,7 +201,7 @@ class DiagramWorkerState(TypedDict):
     draft_mermaid:       str        # scratchpad
     linter_errors:       list[str]
     internal_loop_count: int        # limit = 3
-    thread_id:           str        # needed for file store path
+    thread_id:           str        # needed for artifact storage keys
     iteration:           int        # current swarm iteration
 ```
 
@@ -241,20 +242,32 @@ Evaluated strictly in this priority order:
 
 ```python
 def supervisor_route(state: GlobalSwarmState) -> str:
-    if state["iteration_count"] >= 5:
+    if state["next_agent"] == "END":
         return "END"
-    if not state.get("current_architecture_mermaid"):
+    return state["next_agent"]
+
+def _route(state: GlobalSwarmState) -> str:
+    if not state.get("component_list"):
         return "architect_graph"
     if not state.get("docs_complete"):
         return "doc_generator_graph"
-    if not state.get("scalability_feedback") or "REJECTED" in state["scalability_feedback"]:
+
+    scalability = state.get("scalability_feedback", "")
+    if "REJECTED" in scalability:
+        return "architect_graph"
+    if not scalability:
         return "scalability_node"
-    if not state.get("security_feedback") or "REJECTED" in state["security_feedback"]:
+
+    security = state.get("security_feedback", "")
+    if "REJECTED" in security:
+        return "architect_graph"
+    if not security:
         return "security_node"
-    if state["scalability_feedback"] == "APPROVED" and state["security_feedback"] == "APPROVED":
-        return "END"
-    return "END"  # fallback
+
+    return "END"
 ```
+
+`supervisor_node` increments `iteration_count` first. It allows the `MAX_ITERATIONS`-th pass to route normally and forces `END` only when the incremented count is greater than `MAX_ITERATIONS`.
 
 ### 4.3 Architect Sub-Graph
 
@@ -263,26 +276,32 @@ File: `architect_graph.py`
 Internal topology (sequential then fan-out):
 
 ```
-draft_node → complexity_analyzer_node → diagram_planner_node
-           → [Send API fan-out] → diagram_generator_node (×N, parallel)
-                                → linter_node (×N, parallel)
-                                → [conditional: errors → diagram_generator_node]
-                                → [valid → reduce passthrough]
-           → reduce_node → write_state_node → END
+START
+  → prepare_architect_artifacts_node
+  → draft_architecture_node
+  → score_complexity_node
+  → [conditional: diagram_planner_node returns Send × N]
+  → diagram_generator_node (×N, parallel)
+  → reduce_diagrams_node
+  → END
 ```
 
-This sub-graph is compiled independently and then registered as a single node in the parent graph. The parent graph has no visibility into its internal loop.
+This sub-graph is compiled independently and then registered as a single node in the parent graph. The parent graph has no visibility into its internal fan-out. Mermaid linting and retry happen inside each `diagram_generator_node` worker, not as a separate graph node.
 
 ### 4.4 Document Generator Sub-Graph
 
 File: `doc_generator_graph.py`
 
 ```
-doc_planner_node → [Send API fan-out] → doc_generator_node (×M, parallel)
-                → reduce_node → write_docs_node → END
+START
+  → prepare_doc_artifacts_node
+  → [conditional: doc_planner_node returns Send × M]
+  → document_generator_node (×M, parallel)
+  → reduce_docs_node
+  → END
 ```
 
-Documents do not require linting. Each doc generator node calls the file store to persist the Markdown immediately before returning to the reduce node.
+Documents do not require linting. Each document generator worker calls the artifact store to persist the Markdown before returning to the reduce node.
 
 ---
 
@@ -292,13 +311,13 @@ Documents do not require linting. Each doc generator node calls the file store t
 
 | Property | Value |
 |---|---|
-| Model | `gpt-4o-mini` |
+| Model | None |
 | Tools | None |
-| Output | Sets `next_agent` in state (Enum: architect, docs, scalability, security, END) |
+| Output | Sets `next_agent` in state (`architect_graph`, `doc_generator_graph`, `scalability_node`, `security_node`, `END`) |
 | Increments | `iteration_count` on every invocation |
-| Responsibility | Pure routing — reads state, never generates content |
+| Responsibility | Deterministic Python routing — reads state, never generates content |
 
-System prompt must instruct the model to evaluate routing rules strictly in priority order and output ONLY a structured enum value.
+Routing rules live in `app/agent/subagents/supervisor_router.py`. There is no supervisor LLM prompt in the live graph.
 
 ### 5.2 Lead Architect (Draft Node)
 
@@ -306,8 +325,8 @@ System prompt must instruct the model to evaluate routing rules strictly in prio
 |---|---|
 | Model | `gpt-4o` |
 | Tools | `cloud_docs_search` (optional Tavily) |
-| Output | `architecture_json`, high-level description, initial `component_list` |
-| Writes to | `ArchitectInternalState` only — never writes directly to `GlobalSwarmState` |
+| Output | `architecture_json`, `component_list`, `current_architecture_mermaid` |
+| Writes to | `ArchitectGraphState` fields returned through the compiled subgraph boundary |
 
 Prompt mandate: identify all components, define their relationships, estimate traffic patterns. Output must be valid JSON matching `architecture_json` schema.
 
@@ -340,7 +359,7 @@ Scoring guide the model must follow:
 | Output | One valid `DiagramEntry` appended to `generated_diagrams` |
 | Max lint loops | 3 per diagram |
 
-Each invocation generates exactly one diagram. The linter validates syntax. On failure, the model receives the specific parse error and must fix it. After 3 failed attempts, the node marks the diagram as `syntax_error` and continues — it must not block the reduce phase.
+Each invocation generates exactly one diagram. The linter validates syntax inside the worker. On failure, the model receives the specific parse error and must fix it. After 3 failed attempts, the worker returns an empty `storage_key` / `url`; `reduce_diagrams_node` filters failed entries and continues.
 
 ### 5.5 Document Generator Node
 
@@ -349,7 +368,7 @@ Each invocation generates exactly one diagram. The linter validates syntax. On f
 | Model | `gpt-4o` |
 | Tools | None |
 | Input | One `doc_plan` entry + full `architecture_json` + all `generated_diagrams` |
-| Output | One `DocEntry` appended to `generated_docs`, file persisted to file store |
+| Output | One `DocEntry` appended to `generated_docs`, artifact persisted to artifact store |
 
 Each document must reference relevant Mermaid diagrams by name. Documents are Markdown only — no HTML.
 
@@ -388,11 +407,11 @@ Sub-graphs are compiled independently and registered as single nodes in the pare
 ```python
 # supervisor_graph.py
 from architect_graph import architect_graph       # already compiled StateGraph
-from doc_generator_graph import doc_graph         # already compiled StateGraph
+from doc_generator_graph import doc_generator_graph  # already compiled StateGraph
 
 parent = StateGraph(GlobalSwarmState)
 parent.add_node("architect_graph", architect_graph)      # compiled graph as node
-parent.add_node("doc_generator_graph", doc_graph)
+parent.add_node("doc_generator_graph", doc_generator_graph)
 parent.add_node("scalability_node", scalability_node_fn)
 parent.add_node("security_node", security_node_fn)
 parent.add_node("supervisor_node", supervisor_node_fn)
@@ -422,19 +441,20 @@ This is the most critical implementation detail. The number of diagram/doc worke
 # Inside diagram_planner_node — returns a list of Send objects
 from langgraph.types import Send
 
-def diagram_planner_node(state: GlobalSwarmState) -> list[Send]:
+def diagram_planner_node(state: ArchitectGraphState) -> list[Send]:
     return [
         Send(
             "diagram_generator_node",
             DiagramWorkerState(
                 diagram_type=diagram_type,
+                component_slug=_slug_from_entry(diagram_type),
                 task_requirement=state["task_requirement"],
                 architecture_json=state["architecture_json"],
                 draft_mermaid="",
                 linter_errors=[],
                 internal_loop_count=0,
-                thread_id=state.get("thread_id", ""),
-                iteration=state["iteration_count"],
+                thread_id=state.get("thread_id") or "default",
+                iteration=state.get("iteration_count", 1),
             )
         )
         for diagram_type in state["diagram_plan"]
@@ -443,18 +463,19 @@ def diagram_planner_node(state: GlobalSwarmState) -> list[Send]:
 
 ### Fan-in (Reduce phase)
 
-The reduce node receives a list of all completed worker outputs. Because `generated_diagrams` is annotated with `operator.add`, LangGraph automatically merges all parallel outputs into a single list.
+The reduce node receives state after all completed worker outputs have been merged. Because `ArchitectGraphState.generated_diagrams` and `DocGraphState.generated_docs` are annotated with `operator.add`, LangGraph automatically merges all parallel one-item outputs into a single list inside the subgraph.
 
 ```python
 # The reduce node just validates the merge happened correctly
-def reduce_diagrams_node(state: GlobalSwarmState) -> dict:
-    valid = [d for d in state["generated_diagrams"] if d["content"] != "syntax_error"]
-    failed = [d for d in state["generated_diagrams"] if d["content"] == "syntax_error"]
-    # Log failed diagrams for LangSmith tracing
-    return {"generated_diagrams": valid}  # overwrite with cleaned list
+def reduce_diagrams_node(state: ArchitectGraphState) -> dict:
+    valid = [
+        d for d in state["generated_diagrams"]
+        if d.get("storage_key") and d.get("url")
+    ]
+    return {"generated_diagrams": Overwrite(valid)}
 ```
 
-> **Warning**: Do NOT use a plain `list` type for fields that receive parallel `Send()` writes. Without `Annotated[list, operator.add]`, each parallel node will overwrite the list and only the last result will survive.
+> **Warning**: Do not use a plain `list` type on **subgraph fields** that receive parallel `Send()` writes. Without `Annotated[list, operator.add]` on `ArchitectGraphState.generated_diagrams` and `DocGraphState.generated_docs`, each parallel node can overwrite the list and only the last result may survive. Keep the parent `GlobalSwarmState` artifact fields as plain lists so completed subgraph outputs replace the previous artifact set cleanly.
 
 ---
 
@@ -502,7 +523,7 @@ class Session(Base):
     complexity     = Column(Integer, nullable=True)
     diagram_count  = Column(Integer, nullable=True)
     doc_count      = Column(Integer, nullable=True)
-    report_path    = Column(String, nullable=True)           # R2/S3 key for final report
+    report_path    = Column(String, nullable=True)           # stored final-report artifact key
     created_at     = Column(DateTime(timezone=True), server_default=func.now())
     completed_at   = Column(DateTime(timezone=True), nullable=True)
 
@@ -520,44 +541,40 @@ class DebateLog(Base):
 ### 8.4 LangGraph checkpointer setup
 
 ```python
-# db/checkpointer.py
-import asyncpg
+# app/db/checkpointer.py
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-_checkpointer = None
-
-async def get_checkpointer() -> AsyncPostgresSaver:
-    global _checkpointer
-    if _checkpointer is None:
-        conn = await asyncpg.connect(settings.DATABASE_URL)
-        _checkpointer = AsyncPostgresSaver(conn, schema="langgraph")
-        await _checkpointer.setup()    # idempotent — safe to call every startup
-    return _checkpointer
+@asynccontextmanager
+async def postgres_checkpointer() -> AsyncIterator[AsyncPostgresSaver]:
+    uri = require_langgraph_postgres_uri(settings)
+    async with AsyncPostgresSaver.from_conn_string(uri) as checkpointer:
+        await checkpointer.setup()
+        yield checkpointer
 ```
 
-### 8.5 File store
+### 8.5 Artifact store
 
-For dev: write to local disk. For prod: Cloudflare R2 or AWS S3.
+The live graph persists generated Mermaid and Markdown artifacts through `app/agent/storage/file_store.py`, which currently exposes a Cloudinary-backed `artifact_store`. Worker nodes keep only artifact metadata in LangGraph state (`storage_key`, `url`) and upload the raw text content to the artifact store.
 
 ```python
-# storage/file_store.py
+# app/agent/storage/file_store.py
 
-# Key conventions — must be consistent across all nodes
-DIAGRAM_KEY = "diagrams/{thread_id}/iter{iteration}_{diagram_type}.mmd"
-DOC_KEY     = "reports/{thread_id}/{filename}"
-REPORT_KEY  = "reports/{thread_id}/final_report.md"
+DIAGRAM_KEY = "{folder}/{thread_id}/diagrams/iter{iteration}_{diagram_type}.mmd"
+DOC_KEY     = "{folder}/{thread_id}/docs/{filename}"
 ```
 
-File content (Mermaid strings and Markdown) is also kept in `GlobalSwarmState` for the duration of the session so agents can read it without fetching from the file store. The file store is the persistent record; state is the working copy.
+Reviewer nodes read artifact content back through the artifact store using `storage_key`. State is the routing and metadata copy; the artifact store is the persistent content record.
 
 ### 8.6 What lives where
 
 | Data | Lives in | Reason |
 |---|---|---|
-| Mermaid string (current session) | `GlobalSwarmState.generated_diagrams[].content` | Agents read from state directly |
-| Mermaid file (persistent) | File store (R2/S3) | Long-term download / frontend rendering |
-| Markdown doc (current session) | `GlobalSwarmState.generated_docs[].content` | Agents read from state directly |
-| Markdown file (persistent) | File store (R2/S3) | Long-term storage |
+| Mermaid artifact metadata | `GlobalSwarmState.generated_diagrams[]` | Agents route and pair docs using `storage_key` / `url` |
+| Mermaid content (persistent) | Artifact store | Reviewer readback, frontend rendering, downloads |
+| Markdown artifact metadata | `GlobalSwarmState.generated_docs[]` | Agents route and pair reviews using `storage_key` / `url` |
+| Markdown content (persistent) | Artifact store | Reviewer readback, long-term storage |
 | Agent state + messages | LangGraph checkpointer (Postgres `langgraph` schema) | Automatic — never manage manually |
 | Session metadata | `sessions` table (`public` schema) | Application-level tracking |
 | Debate logs | `debate_logs` table (`public` schema) | Per-review audit trail |
@@ -572,137 +589,81 @@ File content (Mermaid strings and Markdown) is also kept in `GlobalSwarmState` f
 # main.py
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Run Alembic migrations programmatically
-    alembic_cfg = Config("alembic.ini")
-    command.upgrade(alembic_cfg, "head")
+    # 1. Validate app-managed tables exist
+    validate_required_app_tables(engine)
 
-    # 2. LangGraph checkpointer (asyncpg, langgraph schema)
-    app.state.checkpointer = await get_checkpointer()
+    # 2. Configure artifact persistence
+    artifact_store.configure_from_settings(settings)
 
-    # 3. File store
-    app.state.file_store = FileStore()
+    # 3. Compile parent graph once with the app-managed checkpointer
+    async with postgres_checkpointer() as checkpointer:
+        graph = build_supervisor_graph(checkpointer)
+        app.state.swarm_graph_service = SwarmGraphService(graph)
 
-    # 4. Compile parent graph with checkpointer
-    app.state.graph = build_swarm_graph().compile(
-        checkpointer=app.state.checkpointer
-    )
-
-    yield
+        yield
 ```
 
 ### 9.2 API endpoints
 
-**POST /api/swarm/start**
+Live routes are registered under `/api/v1/swarm`.
 
-Creates a session and starts the graph. Returns `thread_id` immediately. Graph runs async in background.
+**POST /api/v1/swarm/run**
 
-```python
-@router.post("/api/swarm/start")
-async def start_swarm(body: StartRequest, db: AsyncSession = Depends(get_db)):
-    thread_id = str(uuid4())
+Runs the compiled graph through `SwarmGraphService.run(...)` using the supplied `thread_id`; persists session metadata when a DB session is available; returns the final `SwarmRunResponse`.
 
-    # Save to sessions table
-    await db.execute(insert(Session).values(
-        thread_id=thread_id,
-        requirement=body.requirement,
-        status="running"
-    ))
-    await db.commit()
+**POST /api/v1/swarm/resume**
 
-    # Kick off graph async — do NOT await here
-    asyncio.create_task(
-        request.app.state.graph.ainvoke(
-            {"task_requirement": body.requirement, "iteration_count": 0, "docs_complete": False},
-            config={"configurable": {"thread_id": thread_id}}
-        )
-    )
+Resumes an existing checkpoint thread through `SwarmGraphService.resume(...)`.
 
-    return {"thread_id": thread_id}
-```
+**GET /api/v1/swarm/state/{thread_id}**
 
-**GET /api/swarm/stream/{thread_id}**
+Returns a checkpoint snapshot including next nodes, plans, artifact metadata, review feedback, and debate log summaries.
 
-SSE endpoint streaming node-level state diffs as the graph executes.
+**GET /api/v1/swarm/sessions/{thread_id}**
 
-```python
-@router.get("/api/swarm/stream/{thread_id}")
-async def stream_swarm(thread_id: str):
-    from sse_starlette.sse import EventSourceResponse
+Returns persisted session metadata plus generated artifact records.
 
-    async def generator():
-        config = {"configurable": {"thread_id": thread_id}}
-        async for event in request.app.state.graph.astream_events(
-            None,             # input=None means resume existing thread
-            config=config,
-            version="v2"
-        ):
-            if event["event"] == "on_chain_end":
-                yield {
-                    "data": json.dumps({
-                        "node": event["name"],
-                        "state_diff": event["data"].get("output", {})
-                    })
-                }
+**GET /api/v1/swarm/graphs**
 
-    return EventSourceResponse(generator())
-```
+Lists renderable graph IDs: `supervisor`, `architect`, and `doc_generator`.
 
-**POST /api/swarm/human-feedback**
+**GET /api/v1/swarm/graphs/{graph_id}/mermaid**
 
-Injects user feedback into a paused graph (Human-in-the-Loop).
-
-```python
-@router.post("/api/swarm/human-feedback")
-async def inject_feedback(body: FeedbackRequest):
-    config = {"configurable": {"thread_id": body.thread_id}}
-    await request.app.state.graph.aupdate_state(
-        config,
-        {"task_requirement": body.feedback},   # inject as additional constraint
-        as_node="supervisor_node"
-    )
-    # Resume graph from checkpoint
-    asyncio.create_task(
-        request.app.state.graph.ainvoke(None, config=config)
-    )
-    return {"status": "resumed"}
-```
+Returns Mermaid syntax from the compiled LangGraph topology. `xray=true` expands nested subgraphs for the supervisor graph.
 
 ---
 
 ## 10. File Structure
 
 ```
-swarm/
-├── main.py                          # FastAPI app, lifespan, router registration
-├── settings.py                      # Pydantic settings (env vars)
-│
-├── graph/
-│   ├── schema.py                    # GlobalSwarmState, ArchitectInternalState, DiagramWorkerState, DocEntry, DiagramEntry
-│   ├── supervisor_graph.py          # Parent StateGraph — compiles all sub-graphs + nodes
-│   ├── architect_graph.py           # Architect sub-graph — draft → complexity → fan-out → reduce
-│   ├── doc_generator_graph.py       # Doc sub-graph — plan → fan-out → reduce
-│   └── reviewer_agents.py           # scalability_node, security_node (plain node functions)
-│
-├── tools/
-│   ├── mermaid_linter.py            # Python tool — validates Mermaid syntax, returns parse errors
-│   └── cloud_docs_search.py         # Optional Tavily search tool for AWS/GCP docs
-│
-├── db/
-│   ├── engine.py                    # SQLAlchemy async engine + session factory
-│   ├── models.py                    # Session, DebateLog, User models
-│   ├── checkpointer.py              # LangGraph AsyncPostgresSaver setup
-│   └── deps.py                      # FastAPI dependency: get_db()
-│
-├── storage/
-│   └── file_store.py                # FileStore class — save/fetch Mermaid + Markdown files
-│
+app/
+├── main.py                          # FastAPI app, lifespan, service registration
 ├── api/
-│   └── routes.py                    # /start, /stream/{thread_id}, /human-feedback
-│
-└── alembic/
-    ├── env.py                       # Must exclude langgraph schema
-    └── versions/
-        └── 001_initial.py           # sessions + debate_logs tables
+│   ├── deps.py                      # SwarmGraphService dependency
+│   └── v1/
+│       ├── router.py                # Registers swarm endpoints
+│       └── endpoints/swarm.py       # /run, /resume, /state, /sessions, /graphs
+├── agent/
+│   ├── graph_mermaid.py             # Compiled graph registry and Mermaid export
+│   ├── run.py                       # Graph entry helpers and checkpoint payload shaping
+│   ├── graphs/
+│   │   ├── supervisor_graph.py      # Parent graph with cyclic deterministic routing
+│   │   ├── architect_graph.py       # Architect subgraph: reset → draft → complexity → Send fan-out → reduce
+│   │   └── doc_generator_graph.py   # Doc subgraph: reset → Send fan-out → reduce
+│   ├── state/schema.py              # Global/subgraph/worker TypedDict state contracts
+│   ├── subagents/                   # Node implementations, prompts, routers, reducers
+│   ├── storage/file_store.py        # Cloudinary-backed ArtifactStore
+│   └── tools/mermaid_linter.py      # Mermaid validation tool
+├── core/
+│   ├── config.py                    # Pydantic settings
+│   └── llm.py                       # Shared LLM factory
+├── db/
+│   ├── checkpointer.py              # LangGraph AsyncPostgresSaver setup
+│   ├── session.py                   # SQLAlchemy session setup
+│   └── migration_check.py           # Startup table validation
+├── models/swarm.py                  # Session, artifact, and debate-log ORM models
+├── schemas/swarm.py                 # API request/response schemas
+└── services/swarm_graph_service.py  # Graph invocation, resume, checkpoint, session facade
 ```
 
 ---
@@ -727,7 +688,7 @@ Implement in this exact order to allow incremental testing at each phase.
 **Phase 3 — Doc sub-graph**
 
 8. `doc_generator_graph.py` — same fan-out pattern as Architect
-9. Test: verify M docs are generated and written to file store
+9. Test: verify M docs are generated and written to artifact store
 
 **Phase 4 — Reviewer nodes**
 
@@ -742,16 +703,17 @@ Implement in this exact order to allow incremental testing at each phase.
 
 **Phase 6 — FastAPI layer**
 
-15. `api/routes.py` — /start, /stream, /human-feedback
-16. Test SSE stream against a running graph
+15. `api/v1/endpoints/swarm.py` — `/run`, `/resume`, `/state`, `/sessions`, `/graphs`
+16. Test graph run/resume responses and Mermaid topology export
 
 ---
 
 ## 12. Critical Constraints
 
 **State management**
-- `Annotated[list, operator.add]` is mandatory on `generated_diagrams` and `generated_docs`. Without it parallel Send() workers overwrite each other.
-- Sub-graphs write only their own fields. They must never reset fields owned by other agents.
+- `Annotated[list, operator.add]` is mandatory on `ArchitectGraphState.generated_diagrams` and `DocGraphState.generated_docs`. Parent `GlobalSwarmState.generated_diagrams` and `GlobalSwarmState.generated_docs` stay plain lists.
+- Reduce nodes use `Overwrite(...)` when replacing accumulated subgraph artifact lists; returning a normal list from a reducer-backed field would append again.
+- Sub-graphs write only their own fields. Artifact reset nodes intentionally clear rerunnable artifacts at subgraph START.
 - `iteration_count` is incremented only by the Supervisor, never by workers.
 
 **LangGraph vs SQLAlchemy**
@@ -761,19 +723,19 @@ Implement in this exact order to allow incremental testing at each phase.
 
 **Mermaid linter**
 - Must return the specific parse error string, not just a boolean. The Diagram Generator node uses the error text in its fix prompt.
-- The linter loop hard limit is 3 per diagram. On the 4th failure, mark `content = "syntax_error"` and return — never block the reduce phase.
+- The linter loop hard limit is 3 per diagram. After the final failure, return a diagram entry with empty `storage_key` / `url`; `reduce_diagrams_node` filters it out and the graph continues.
 
 **Map-Reduce**
 - `diagram_planner_node` must return a `list[Send]`, not a state update dict. This is what triggers the fan-out.
 - The reduce node runs after ALL parallel workers complete. LangGraph handles this synchronization automatically.
 
-**File store**
-- Always write file content to state AND to the file store. State is the working copy for agents; file store is the persistent record for the frontend and downloads.
-- Key format must be consistent: `diagrams/{thread_id}/iter{n}_{type}.mmd` and `reports/{thread_id}/{slug}.md`.
+**Artifact store**
+- Always write artifact metadata to state and content to the artifact store. State is the working copy for agents; the artifact store is the persistent record for the frontend and downloads.
+- Key format must be consistent: `{folder}/{thread_id}/diagrams/iter{n}_{type}.mmd` and `{folder}/{thread_id}/docs/{filename}`.
 
 **LangSmith**
 - Set `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` in `.env` before running any graph.
 - Every node execution, state mutation, and tool call will be visible in LangSmith. Use this to debug hallucinations and routing errors.
 
 **Circuit breaker**
-- `iteration_count >= 5` always routes to END regardless of review status. This prevents infinite billing loops when reviewers deadlock.
+- The supervisor allows the `MAX_ITERATIONS`-th pass to route normally and forces `END` only when the incremented `iteration_count` is greater than `MAX_ITERATIONS`. This prevents infinite billing loops while still allowing the final permitted pass to run.

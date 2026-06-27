@@ -59,7 +59,7 @@ Each `Send` gets an **isolated** copy; workers cannot see each other.
 | `diagram_type` | One `diagram_plan` entry |
 | `component_slug` | From `_slug_from_entry` in planner |
 | `task_requirement`, `architecture_json` | Copied from subgraph state |
-| `thread_id`, `iteration` | Used in `DiagramEntry.path` |
+| `thread_id`, `iteration` | Used in Cloudinary `storage_key` for `DiagramEntry` |
 
 Planner signature: `diagram_planner_node(state: ArchitectGraphState) -> list[Send]`.
 
@@ -91,8 +91,8 @@ The `Send` target name must match `add_node` exactly: `"diagram_generator_node"`
 1. Prompt from plan entry + architecture
 2. `get_chat_llm()` + strip fences
 3. `mermaid_linter` — up to **3** attempts
-4. Success → `{"generated_diagrams": [DiagramEntry(...)]}` (one entry; subgraph reducer appends)
-5. Failure → `content="syntax_error"` (dropped at reduce)
+4. Success → upload via [`artifact_store.upload_diagram`](../../app/agent/storage/file_store.py) → `{"generated_diagrams": [DiagramEntry(...)]}` (one entry; subgraph reducer appends)
+5. Failure after 3 attempts → `storage_key=""`, `url=""` (dropped at reduce)
 
 ---
 
@@ -100,7 +100,7 @@ The `Send` target name must match `add_node` exactly: `"diagram_generator_node"`
 
 `reduce_diagrams_node` on `ArchitectGraphState`:
 
-- Drops `syntax_error`
+- Drops entries with empty `storage_key` or `url`
 - Returns `{"generated_diagrams": Overwrite(valid_diagrams)}`
 
 `Overwrite` collapses worker accumulation **inside the subgraph**. When the subgraph exits, the parent **replaces** `GlobalSwarmState.generated_diagrams` (plain list) — see [state-merge-and-artifacts.md](state-merge-and-artifacts.md).
@@ -111,8 +111,8 @@ The `Send` target name must match `add_node` exactly: `"diagram_generator_node"`
 
 | Topic | Status |
 |-------|--------|
-| Diagram files on disk | `FileStore.save_diagram` exists; workers do not call it yet |
-| Overview Mermaid | `current_architecture_mermaid` from lead architect; Phase 7 adds per-plan diagrams |
+| Component doc ↔ diagram pairing | `slug_from_doc_filename` keeps `component-` prefix; diagram slugs strip it — overview pairs correctly |
+| Overview Mermaid | `current_architecture_mermaid` from lead architect; per-plan diagrams added by parallel workers |
 
 ---
 
