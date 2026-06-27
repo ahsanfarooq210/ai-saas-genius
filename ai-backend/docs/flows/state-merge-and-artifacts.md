@@ -91,7 +91,7 @@ LangGraph appends each slice into `ArchitectGraphState.generated_diagrams`.
 [`reduce_diagrams_node`](../../app/agent/subagents/reduce_diagrams.py) then:
 
 1. Reads the merged list
-2. Drops `content == "syntax_error"`
+2. Drops entries with empty `storage_key` or `url`
 3. Returns `{"generated_diagrams": Overwrite(valid_diagrams)}`
 
 `Overwrite` collapses the reducer accumulation **inside the subgraph** to one clean list. That is separate from parent merge semantics.

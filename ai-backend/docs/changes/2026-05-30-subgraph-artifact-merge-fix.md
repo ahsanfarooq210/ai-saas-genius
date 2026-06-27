@@ -4,7 +4,7 @@
 
 ## Symptom
 
-API responses and checkpoints could contain **duplicate** `generated_diagrams` and `generated_docs` entries (same `path` repeated 2× or more). Example: 23 unique report paths appearing 46 times in `generated_docs`, with `docs_complete: false` at the end of some runs.
+API responses and checkpoints could contain **duplicate** `generated_diagrams` and `generated_docs` entries (same `storage_key` repeated 2× or more). Example: 23 unique report keys appearing 46 times in `generated_docs`, with `docs_complete: false` at the end of some runs.
 
 ## Root cause
 
