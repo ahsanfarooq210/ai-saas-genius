@@ -300,6 +300,6 @@ Then:
 
 - The implementation does not add Phase 12 SSE streaming.
 - The implementation does not add human feedback interrupts.
-- Diagram workers still do not save `.mmd` files through `FileStore.save_diagram()`.
+- Diagram and doc workers persist artifacts to Cloudinary (`storage_key` + `url` on state entries).
 - App metadata is updated at run/resume boundaries, not continuously after every node.
 - A process crash after the graph starts but before the response returns can leave the app `sessions.status` as `running`; the LangGraph checkpoint remains the resume source of truth.

@@ -110,18 +110,23 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 | `POST` | `/api/v1/swarm/run` |
 | `POST` | `/api/v1/swarm/resume` |
 | `GET` | `/api/v1/swarm/state/{thread_id}` |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}` |
+| `GET` | `/api/v1/swarm/graphs` |
+| `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` |
 | `GET` | `/health` |
 
-Graph introspection routes are also registered under `/api/v1/swarm/graphs`.
+Graph introspection is backed by [`app/agent/graph_mermaid.py`](../../app/agent/graph_mermaid.py) (`supervisor`, `architect`, `doc_generator`).
 
 ---
 
 ## Artifacts
 
-| Type | State | Disk |
-|------|-------|------|
-| Diagrams | `DiagramEntry` in `generated_diagrams` | `FileStore.save_diagram` exists; workers do not call it yet |
-| Docs | `DocEntry` in `generated_docs` | `output/reports/{thread_id}/*.md` |
+| Type | State fields | Persistent store |
+|------|--------------|------------------|
+| Diagrams | `DiagramEntry`: `diagram_type`, `component_slug`, `storage_key`, `url`, `iteration` | Cloudinary via [`artifact_store.upload_diagram`](../../app/agent/storage/file_store.py) |
+| Docs | `DocEntry`: `title`, `component_slug`, `storage_key`, `url` | Cloudinary via [`artifact_store.upload_doc`](../../app/agent/storage/file_store.py) |
+
+Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/main.py).
 
 ---
 
@@ -141,7 +146,6 @@ Graph introspection routes are also registered under `/api/v1/swarm/graphs`.
 
 **Roadmap / not production-complete:**
 
-- Diagram files on disk from workers
 - Full auth API (README may mention scaffolded auth not wired in router)
 - Phase 12 SSE streaming and human-feedback interrupts
 

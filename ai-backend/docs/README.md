@@ -27,7 +27,7 @@ Read these in order if you are new to the swarm:
 **Deep dives (optional):**
 
 - [flows/phase-7-flow.md](flows/phase-7-flow.md) — diagram workers, Mermaid lint loop
-- [flows/phase-8-flow.md](flows/phase-8-flow.md) — document workers, disk paths, pairing
+- [flows/phase-8-flow.md](flows/phase-8-flow.md) — document workers, Cloudinary artifacts, pairing
 
 **Recent change:**
 

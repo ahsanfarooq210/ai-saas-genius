@@ -50,3 +50,26 @@ class SwarmDebateLog(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+
+class SwarmSessionArtifact(Base):
+    __tablename__ = "session_artifacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    thread_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("sessions.thread_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    artifact_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    component_slug: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    iteration: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )

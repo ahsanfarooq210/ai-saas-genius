@@ -1,5 +1,5 @@
 from app.agent.state.schema import DiagramEntry, DocEntry, DocWorkerState
-from app.agent.storage.file_store import file_store
+from app.agent.storage.file_store import artifact_store
 from app.agent.subagents.llm_reply import assistant_text
 from app.core.llm import get_chat_llm
 
@@ -14,7 +14,7 @@ Rules:
 - For component docs: cover responsibilities, APIs/interfaces, data it owns,
   failure modes, and scaling considerations
 - Always include a "## Related Diagrams" section at the end referencing the
-  paired Mermaid diagram by its file path when one is provided
+  paired Mermaid diagram by its public URL when one is provided
 - For overview.md: write an executive summary linking to all component docs
 - Be specific — avoid generic filler text
 - Output only the Markdown content, no preamble
@@ -27,13 +27,13 @@ def _find_paired_diagram(
 ) -> str:
     if not component_slug:
         for d in diagrams:
-            if d["diagram_type"] == "overview" and d["content"] != "syntax_error":
-                return d.get("path") or ""
+            if d["diagram_type"] == "overview" and d.get("url"):
+                return d.get("url") or ""
         return ""
 
     for d in diagrams:
-        if d["component_slug"] == component_slug and d["content"] != "syntax_error":
-            return d.get("path") or ""
+        if d["component_slug"] == component_slug and d.get("url"):
+            return d.get("url") or ""
 
     return ""
 
@@ -62,9 +62,9 @@ def document_generator_node(state: DocWorkerState) -> dict:
     )
 
     diagram_refs = "\n".join(
-        f"- {d['diagram_type']}: {d['path']}"
+        f"- {d['diagram_type']}: {d['url']}"
         for d in state["generated_diagrams"]
-        if d.get("content") != "syntax_error"
+        if d.get("url")
     )
 
     prompt = (
@@ -85,17 +85,19 @@ def document_generator_node(state: DocWorkerState) -> dict:
 
     content = assistant_text(response).strip()
     title = title_from_filename(state["doc_filename"])
-    doc_path = f"reports/{state['thread_id']}/{state['doc_filename']}"
-
-    file_store.save_doc(doc_path, content)
+    stored = artifact_store.upload_doc(
+        thread_id=state["thread_id"],
+        doc_filename=state["doc_filename"],
+        content=content,
+    )
 
     return {
         "generated_docs": [
             DocEntry(
                 title=title,
                 component_slug=state["component_slug"],
-                content=content,
-                path=doc_path,
+                storage_key=stored.storage_key,
+                url=stored.url,
             )
         ]
     }

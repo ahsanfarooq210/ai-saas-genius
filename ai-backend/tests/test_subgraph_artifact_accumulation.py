@@ -96,8 +96,14 @@ def _diagram_worker_node(state: DiagramWorkerState) -> dict[str, list[DiagramEnt
             DiagramEntry(
                 diagram_type=state["diagram_type"],
                 component_slug=state["component_slug"],
-                content=f"flowchart TD\n    A[{state['diagram_type']}]",
-                path=f"diagrams/{state['thread_id']}/iter{state['iteration']}_{state['diagram_type']}.mmd",
+                storage_key=(
+                    f"swarm-artifacts/{state['thread_id']}/diagrams/"
+                    f"iter{state['iteration']}_{state['diagram_type']}.mmd"
+                ),
+                url=(
+                    "https://cdn.example/"
+                    f"{state['thread_id']}/iter{state['iteration']}_{state['diagram_type']}.mmd"
+                ),
                 iteration=state["iteration"],
             )
         ]
@@ -134,8 +140,8 @@ def _doc_worker_node(state: DocWorkerState) -> dict[str, list[DocEntry]]:
             DocEntry(
                 title=state["doc_filename"],
                 component_slug=state["component_slug"],
-                content=f"# {state['doc_filename']}",
-                path=f"reports/{state['thread_id']}/{state['doc_filename']}",
+                storage_key=f"swarm-artifacts/{state['thread_id']}/docs/{state['doc_filename']}",
+                url=f"https://cdn.example/{state['thread_id']}/{state['doc_filename']}",
             )
         ]
     }

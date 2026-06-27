@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.agent.storage.file_store import artifact_store
 from app.agent.state.schema import DebateLogEntry, DiagramEntry, DocEntry, GlobalSwarmState
 
 _DOC_PREVIEW_CHARS = 500
@@ -22,10 +23,12 @@ def format_diagrams_for_review(diagrams: list[DiagramEntry] | None) -> str:
         return "No diagrams generated."
     lines: list[str] = []
     for entry in diagrams:
-        if entry["content"] == "syntax_error":
+        storage_key = entry.get("storage_key") or ""
+        if not storage_key:
             continue
+        content = artifact_store.read_text(storage_key)
         lines.append(
-            f"### {entry['diagram_type']}\n```\n{entry['content']}\n```"
+            f"### {entry['diagram_type']}\n```\n{content}\n```"
         )
     return "\n\n".join(lines) if lines else "No valid diagrams generated."
 
@@ -35,10 +38,14 @@ def format_docs_for_review(docs: list[DocEntry] | None) -> str:
         return "No docs generated."
     lines: list[str] = []
     for entry in docs:
-        preview = entry["content"][:_DOC_PREVIEW_CHARS]
-        suffix = "..." if len(entry["content"]) > _DOC_PREVIEW_CHARS else ""
+        storage_key = entry.get("storage_key") or ""
+        if not storage_key:
+            continue
+        content = artifact_store.read_text(storage_key)
+        preview = content[:_DOC_PREVIEW_CHARS]
+        suffix = "..." if len(content) > _DOC_PREVIEW_CHARS else ""
         lines.append(f"### {entry['title']}\n{preview}{suffix}")
-    return "\n\n".join(lines)
+    return "\n\n".join(lines) if lines else "No valid docs generated."
 
 
 def build_review_prompt(state: GlobalSwarmState) -> str:

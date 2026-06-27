@@ -14,7 +14,7 @@ A client sends a **system design requirement** (natural language). The backend r
 
 - `architecture_json` and `component_list`
 - Many **Mermaid diagrams** (`generated_diagrams`)
-- Many **Markdown documents** (`generated_docs`) written under `output/reports/{thread_id}/`
+- Many **Markdown documents** (`generated_docs`) persisted to Cloudinary with public URLs in state
 - Optional **reviewer feedback** and `debate_logs` when scalability/security nodes run
 
 The same `thread_id` can **resume** a checkpointed run via the API.
@@ -131,10 +131,10 @@ START → prepare_architect_artifacts_node
    Returns `list[Send]` — one isolated [`DiagramWorkerState`](../../app/agent/state/schema.py) per `diagram_plan` entry.
 
 5. **`diagram_generator_node`** ([`diagram_generator_worker.py`](../../app/agent/subagents/diagram_generator_worker.py))  
-   LLM Mermaid + [`mermaid_linter`](../../app/agent/tools/mermaid_linter.py) retry loop. Returns one `DiagramEntry` per worker; **subgraph reducer appends**.
+   LLM Mermaid + [`mermaid_linter`](../../app/agent/tools/mermaid_linter.py) retry loop (up to 3 attempts). On success, uploads via [`artifact_store.upload_diagram`](../../app/agent/storage/file_store.py). Returns one `DiagramEntry` per worker; **subgraph reducer appends**.
 
 6. **`reduce_diagrams_node`** ([`reduce_diagrams.py`](../../app/agent/subagents/reduce_diagrams.py))  
-   Drops `syntax_error` entries; `Overwrite(valid_diagrams)` inside subgraph.
+   Drops entries with empty `storage_key` or `url`; `Overwrite(valid_diagrams)` inside subgraph.
 
 When the subgraph returns to the parent, `generated_diagrams` **replaces** the parent field (no duplicate append).
 
@@ -158,7 +158,7 @@ START → prepare_doc_artifacts_node
 
 2. **`doc_planner_node`** — `Send` per `doc_plan` filename with [`DocWorkerState`](../../app/agent/state/schema.py), including a snapshot of `generated_diagrams` for pairing.
 
-3. **`document_generator_node`** — LLM Markdown; [`file_store.save_doc`](../../app/agent/storage/file_store.py) → `output/reports/{thread_id}/{filename}`.
+3. **`document_generator_node`** — LLM Markdown; [`artifact_store.upload_doc`](../../app/agent/storage/file_store.py) → Cloudinary raw asset with `storage_key` + `url` on `DocEntry`.
 
 4. **`reduce_docs_node`** — `Overwrite(all_docs)`, `docs_complete=True`.
 
@@ -207,14 +207,14 @@ sequenceDiagram
 
 ---
 
-## 9. Artifacts on disk vs in state
+## 9. Artifacts in state vs Cloudinary
 
-| Artifact | In state | On disk |
-|----------|----------|---------|
-| Diagrams | `DiagramEntry.content`, logical `path` | `save_diagram` exists on `FileStore` but diagram workers do **not** call it yet — content is API/checkpoint state |
-| Docs | `DocEntry.content`, `path` | `output/reports/{thread_id}/*.md` via `save_doc` |
+| Artifact | In state (`DiagramEntry` / `DocEntry`) | Persistent store |
+|----------|----------------------------------------|------------------|
+| Diagrams | `diagram_type`, `component_slug`, `storage_key`, `url`, `iteration` | [`artifact_store.upload_diagram`](../../app/agent/storage/file_store.py) → Cloudinary raw `.mmd` |
+| Docs | `title`, `component_slug`, `storage_key`, `url` | [`artifact_store.upload_doc`](../../app/agent/storage/file_store.py) → Cloudinary raw `.md` |
 
-Paths use `thread_id` from the request so concurrent runs do not collide.
+Cloudinary keys embed `thread_id` (e.g. `{folder}/{thread_id}/diagrams/iter{n}_{type}.mmd`) so concurrent runs do not collide. Mermaid source and Markdown body are **not** duplicated in checkpoint state — agents and the API use `url` for delivery.
 
 ---
 
@@ -227,7 +227,7 @@ Both plans come from the complexity analyzer. Live pairing behavior is:
 - `overview.md` maps to `component_slug=""` and pairs with the `overview` diagram
 - `adr-*.md` and `runbook-*.md` also map to `component_slug=""` and are treated as cross-cutting docs
 
-Doc workers look for a paired diagram with [`_find_paired_diagram`](../../app/agent/subagents/document_generator_worker.py) and add a **Related Diagrams** section when a path exists.
+Doc workers look for a paired diagram with [`_find_paired_diagram`](../../app/agent/subagents/document_generator_worker.py) and add a **Related Diagrams** section when a `url` exists.
 
 **Current limitation:** component docs do not currently pair to component diagrams by exact `component_slug`, because the doc path keeps the `component-` prefix while the diagram path strips it. Overview pairing works; component pairing needs slug normalization code, not just doc changes.
 
@@ -240,6 +240,9 @@ Doc workers look for a paired diagram with [`_find_paired_diagram`](../../app/ag
 | `POST` | `/api/v1/swarm/run` | New run with `task_requirement` + `thread_id` |
 | `POST` | `/api/v1/swarm/resume` | Continue checkpointed thread |
 | `GET` | `/api/v1/swarm/state/{thread_id}` | Checkpoint summary + full `values` |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}` | App `sessions` row + artifact metadata |
+| `GET` | `/api/v1/swarm/graphs` | List compiled graph ids (`supervisor`, `architect`, `doc_generator`) |
+| `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` | Mermaid topology from [`graph_mermaid.py`](../../app/agent/graph_mermaid.py) |
 | `GET` | `/health` | Health check |
 
 Response shaping: [`app/schemas/swarm.py`](../../app/schemas/swarm.py), [`build_checkpoint_payload`](../../app/agent/run.py).
@@ -277,5 +280,5 @@ See [project-state.md](project-state.md) for an up-to-date gap list.
 | [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md) | Reducers, duplicates, resets |
 | [swarm-graph-overview.md](../flows/swarm-graph-overview.md) | Full topology tables, dependency diagram |
 | [phase-7-flow.md](../flows/phase-7-flow.md) | Diagram `Send`, lint loop |
-| [phase-8-flow.md](../flows/phase-8-flow.md) | Doc `Send`, disk layout |
+| [phase-8-flow.md](phase-8-flow.md) | Doc `Send`, Cloudinary artifacts |
 | [architecture/plan.md](../architecture/plan.md) | Target design (roadmap) |

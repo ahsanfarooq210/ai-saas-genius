@@ -630,8 +630,8 @@ class DiagramEntry(TypedDict):
     diagram_type: str       # "overview" | "component-api-gateway" | "auth-flow" | ...
     component_slug: str     # slug of the component this diagram is scoped to,
                             # or "" for purely cross-cutting diagrams like "auth-flow"
-    content: str            # raw Mermaid string
-    path: str               # file key: diagrams/{thread_id}/iter{n}_{diagram_type}.mmd
+    storage_key: str        # Cloudinary public ID for the Mermaid asset
+    url: str                # public delivery URL for the Mermaid asset
     iteration: int          # which swarm pass produced this
 
 # GlobalSwarmState addition:
@@ -728,17 +728,17 @@ def diagram_planner_node(state: GlobalSwarmState) -> list[Send]:
     ]
 ```
 
-### Output files produced
+### Output artifacts produced
 
 ```
-output/{thread_id}/iter1_overview.mmd
-output/{thread_id}/iter1_component-api-gateway.mmd
-output/{thread_id}/iter1_component-auth-service.mmd
-output/{thread_id}/iter1_auth-flow.mmd
+swarm-artifacts/{thread_id}/diagrams/iter1_overview.mmd
+swarm-artifacts/{thread_id}/diagrams/iter1_component-api-gateway.mmd
+swarm-artifacts/{thread_id}/diagrams/iter1_component-auth-service.mmd
+swarm-artifacts/{thread_id}/diagrams/iter1_auth-flow.mmd
 ```
 
-One `.mmd` file per `diagram_plan` entry. Component-scoped diagrams have a matching
-`component_slug` that will pair with a `.md` file of the same slug in Phase 8.
+One raw Cloudinary asset per `diagram_plan` entry. Component-scoped diagrams have a matching
+`component_slug` that will pair with a Markdown asset of the same slug in Phase 8.
 
 ### Graph shape inside architect_graph (updated)
 
@@ -763,7 +763,7 @@ draft_node → complexity_analyzer_node → diagram_planner_node
 cd ai-backend && python -m app.agent.run "Design a URL shortener"
 # component_list has K components
 # generated_diagrams has K + 1 entries (one per component + overview)
-# Each entry has a .mmd file written to output/
+# Each entry has a Cloudinary storage key and public URL
 
 python -m app.agent.run "Design a distributed payment system"
 # 7+ components → 8+ diagram entries including overview
@@ -798,8 +798,8 @@ class DocEntry(TypedDict):
     title: str              # "Auth Service — Component Overview"
     component_slug: str     # matches DiagramEntry.component_slug — the pairing key
                             # "" for overview.md, ADRs, runbooks
-    content: str            # raw Markdown — references matching diagram by path/title
-    path: str               # reports/{thread_id}/{slug}.md
+    storage_key: str        # Cloudinary public ID for the Markdown asset
+    url: str                # public delivery URL for the Markdown asset
 
 class DocWorkerState(TypedDict):
     doc_filename: str                           # "auth-service.md"
@@ -814,17 +814,17 @@ class DocWorkerState(TypedDict):
 #   docs_complete: bool   ← set True when doc sub-graph finishes; unlocks reviewers
 ```
 
-### Output files produced
+### Output artifacts produced
 
 ```
-output/{thread_id}/overview.md
-output/{thread_id}/api-gateway.md        ← pairs with iter{n}_component-api-gateway.mmd
-output/{thread_id}/auth-service.md       ← pairs with iter{n}_component-auth-service.mmd
-output/{thread_id}/adr-caching.md        ← cross-cutting, component_slug = ""
+swarm-artifacts/{thread_id}/docs/overview.md
+swarm-artifacts/{thread_id}/docs/api-gateway.md        ← pairs with iter{n}_component-api-gateway.mmd
+swarm-artifacts/{thread_id}/docs/auth-service.md       ← pairs with iter{n}_component-auth-service.mmd
+swarm-artifacts/{thread_id}/docs/adr-caching.md        ← cross-cutting, component_slug = ""
 ```
 
-Each `.md` file **references its paired `.mmd`** by path:
-*"See `diagrams/{thread_id}/iter1_component-auth-service.mmd` for the sequence diagram."*
+Each Markdown asset **references its paired Mermaid asset** by public URL:
+*"See `https://.../swarm-artifacts/{thread_id}/diagrams/iter1_component-auth-service.mmd` for the sequence diagram."*
 
 This is the pairing invariant. `component_slug` is the linking key in both entries.
 
@@ -844,7 +844,7 @@ This is the pairing invariant. `component_slug` is the linking key in both entri
 cd ai-backend && python -m app.agent.run "Design a URL shortener"
 # generated_docs has M entries matching doc_plan
 # For each component C, there is exactly one DiagramEntry and one DocEntry with the same component_slug
-# Each .md file contains a reference to its paired .mmd path
+# Each Markdown artifact contains a reference to its paired Mermaid URL
 # docs_complete is True in final state
 ```
 
@@ -1123,7 +1123,7 @@ Implement **`build_swarm_graph()`** in **`app/agent/graphs/supervisor_graph.py`*
 async def lifespan(app: FastAPI):
     # 1. Run Alembic migrations
     # 2. Set up AsyncPostgresSaver (idempotent — creates langgraph schema tables)
-    # 3. Initialize FileStore
+    # 3. Initialize Cloudinary-backed artifact storage
     # 4. Compile the graph ONCE — shared across all requests, never per-request
     app.state.graph = build_swarm_graph().compile(
         checkpointer=checkpointer,
@@ -1190,7 +1190,7 @@ Phase 9:  + iteration_count, next_agent
           + security_feedback: str   (stub "" → Phase 10 fills it)
 Phase 10: + DebateLogEntry TypedDict in app/agent/state/schema.py (in-memory list for now)
 Phase 11: (no new GlobalSwarmState fields — DB + file store layer change only)
-Phase 12: (no new GlobalSwarmState fields — API wrapper only)
+Phase 12: (no new GlobalSwarmState fields — API wrapper only; return artifact URLs, not raw content)
 ```
 
 By Phase 12 you will have built every field in `GlobalSwarmState` yourself — one at a
