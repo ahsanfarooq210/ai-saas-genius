@@ -20,9 +20,10 @@ Read these in order if you are new to the swarm:
 | 1 | [current/how-the-swarm-graph-works.md](current/how-the-swarm-graph-works.md) | End-to-end story: parent graph, subgraphs, routing, artifacts |
 | 2 | [flows/state-merge-and-artifacts.md](flows/state-merge-and-artifacts.md) | **Critical:** parent vs subgraph state, reducers, resets — avoids duplicate artifacts |
 | 3 | [flows/swarm-graph-overview.md](flows/swarm-graph-overview.md) | Node-by-node topology, `Send` fan-out, module map |
-| 4 | [current/project-state.md](current/project-state.md) | API routes, gaps, files that are not wired |
-| 5 | [current/phase-11-postgres-persistence.md](current/phase-11-postgres-persistence.md) | Current Postgres checkpointer, app tables, and persistence logic |
-| 6 | [architecture/plan.md](architecture/plan.md) | Target / roadmap (not guaranteed to match live code) |
+| 4 | [current/streaming.md](current/streaming.md) | Live SSE progress streaming contract and implementation |
+| 5 | [current/project-state.md](current/project-state.md) | API routes, gaps, files that are not wired |
+| 6 | [current/phase-11-postgres-persistence.md](current/phase-11-postgres-persistence.md) | Current Postgres checkpointer, app tables, and persistence logic |
+| 7 | [architecture/plan.md](architecture/plan.md) | Target / roadmap (not guaranteed to match live code) |
 
 **Deep dives (optional):**
 
@@ -31,6 +32,8 @@ Read these in order if you are new to the swarm:
 
 **Recent change:**
 
+- [current/streaming.md](current/streaming.md) — live SSE progress streaming for swarm runs and resumes
+- [changes/2026-06-28-swarm-streaming-progress.md](changes/2026-06-28-swarm-streaming-progress.md) — change log for streaming endpoints, event normalization, and error handling
 - [current/phase-11-postgres-persistence.md](current/phase-11-postgres-persistence.md) — Phase 11 Postgres checkpointing and app metadata tables
 - [changes/2026-05-30-subgraph-artifact-merge-fix.md](changes/2026-05-30-subgraph-artifact-merge-fix.md) — fix for duplicate diagrams/docs in API responses
 

@@ -27,6 +27,7 @@ The same `thread_id` can **resume** a checkpointed run via the API.
 flowchart TB
   subgraph api [API layer]
     EP["POST /api/v1/swarm/run"]
+    STREAM["POST /api/v1/swarm/run/stream"]
     SVC[SwarmGraphService]
   end
   subgraph parent [Parent graph - GlobalSwarmState]
@@ -38,6 +39,7 @@ flowchart TB
     SEC[security_node]
   end
   EP --> SVC
+  STREAM --> SVC
   SVC --> SUP
   SUP --> ROUTE
   ROUTE --> ARCH
@@ -54,6 +56,7 @@ flowchart TB
 |-------|----------------|-----------|
 | API | Validate request, pass DB session, await async service calls | `app/api/v1/endpoints/swarm.py` |
 | Service | Empty initial state, async graph calls, app metadata writes | `app/services/swarm_graph_service.py` |
+| Streaming | Normalize LangGraph stream chunks into sanitized progress events | `app/agent/streaming.py`, `docs/current/streaming.md` |
 | Parent graph | Route between phases; runtime graph receives Postgres checkpointer | `app/agent/graphs/supervisor_graph.py` |
 | Subgraphs | Architect (draft + diagrams) and docs (Markdown) | `architect_graph.py`, `doc_generator_graph.py` |
 | Subagents | Prompts, structured output, node bodies | `app/agent/subagents/` |
@@ -205,6 +208,15 @@ sequenceDiagram
   P-->>C: SwarmRunResponse
 ```
 
+The streaming variant uses the same graph path but different transport:
+
+```text
+POST /api/v1/swarm/run/stream → SSE progress events → event: done
+GET  /api/v1/swarm/state/{thread_id} or /sessions/{thread_id} → durable result metadata
+```
+
+Streaming does not change graph topology. `SwarmGraphService` calls LangGraph `astream(..., stream_mode=["tasks", "updates"], subgraphs=True, version="v2")`, and `app/agent/streaming.py` sanitizes raw chunks before the API sends SSE frames. See [streaming.md](streaming.md).
+
 ---
 
 ## 9. Artifacts in state vs Cloudinary
@@ -238,8 +250,10 @@ Doc workers look for a paired diagram with [`_find_paired_diagram`](../../app/ag
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/api/v1/swarm/run` | New run with `task_requirement` + `thread_id` |
+| `POST` | `/api/v1/swarm/run/stream` | New run with SSE progress events |
 | `POST` | `/api/v1/swarm/resume` | Continue checkpointed thread |
-| `GET` | `/api/v1/swarm/state/{thread_id}` | Checkpoint summary + full `values` |
+| `POST` | `/api/v1/swarm/resume/stream` | Continue checkpointed thread with SSE progress events |
+| `GET` | `/api/v1/swarm/state/{thread_id}` | Checkpoint summary |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}` | App `sessions` row + artifact metadata |
 | `GET` | `/api/v1/swarm/graphs` | List compiled graph ids (`supervisor`, `architect`, `doc_generator`) |
 | `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` | Mermaid topology from [`graph_mermaid.py`](../../app/agent/graph_mermaid.py) |

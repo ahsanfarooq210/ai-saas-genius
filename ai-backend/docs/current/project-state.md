@@ -19,8 +19,9 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 | `app/main.py` | App lifespan, Postgres checkpointer, service registration |
 | `app/api/v1/router.py` | Route registration |
 | `app/api/v1/endpoints/swarm.py` | Swarm HTTP handlers |
-| `app/services/swarm_graph_service.py` | Async graph invoke/resume, checkpoint payload, app metadata writes |
+| `app/services/swarm_graph_service.py` | Async graph invoke/resume, streaming progress, checkpoint payload, app metadata writes |
 | `app/agent/run.py` | Checkpoint payload shaping |
+| `app/agent/streaming.py` | LangGraph stream event normalization and sanitization |
 | `app/agent/graphs/` | Parent + subgraph topology |
 | `app/agent/state/schema.py` | All state `TypedDict`s |
 
@@ -34,6 +35,8 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 4. Graph runs until `END` or iteration cap
 5. `SwarmGraphService` updates `sessions` and mirrors final `debate_logs`
 6. Response validated as `SwarmRunResponse` / `SwarmCheckpointResponse`
+
+Streaming variants (`POST /api/v1/swarm/run/stream`, `POST /api/v1/swarm/resume/stream`) use the same graph/service path but return SSE progress events instead of the final result body. After `event: done`, clients fetch durable state/session data by `thread_id`. See [streaming.md](streaming.md).
 
 ---
 
@@ -108,7 +111,9 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 | Method | Path |
 |--------|------|
 | `POST` | `/api/v1/swarm/run` |
+| `POST` | `/api/v1/swarm/run/stream` |
 | `POST` | `/api/v1/swarm/resume` |
+| `POST` | `/api/v1/swarm/resume/stream` |
 | `GET` | `/api/v1/swarm/state/{thread_id}` |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}` |
 | `GET` | `/api/v1/swarm/graphs` |
@@ -138,6 +143,7 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 - Parallel diagram and doc generation via `Send`
 - LLM reviewers with `REJECTED` → architect rerun
 - Subgraph artifact reset and parent plain-list merge (2026-05-30)
+- SSE progress streaming for run/resume with sanitized graph events
 
 **On disk but not in active graph:**
 
@@ -147,7 +153,7 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 **Roadmap / not production-complete:**
 
 - Full auth API (README may mention scaffolded auth not wired in router)
-- Phase 12 SSE streaming and human-feedback interrupts
+- Human-feedback interrupts
 
 ---
 
@@ -156,7 +162,7 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 | Layer | Should contain |
 |-------|----------------|
 | API | Validation, async service calls, response models |
-| Service | Async graph calls, empty state, checkpoint payload, app metadata writes |
+| Service | Async graph calls, streaming graph calls, empty state, checkpoint payload, app metadata writes |
 | `graphs/` | Topology only |
 | `subagents/` | Prompts, node logic, structured output |
 | `state/schema.py` | TypedDict contracts |
@@ -169,7 +175,9 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 pytest tests/test_subgraph_artifact_accumulation.py \
        tests/test_reducer_phase6.py \
        tests/test_reducer_phase8.py \
-       tests/test_supervisor_routing_phase9.py -q
+       tests/test_supervisor_routing_phase9.py \
+       tests/test_swarm_streaming_events.py \
+       tests/test_swarm_graph_service_streaming.py -q
 ```
 
 ---

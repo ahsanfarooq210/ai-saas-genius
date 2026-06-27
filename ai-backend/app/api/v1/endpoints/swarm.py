@@ -1,4 +1,9 @@
+import json
+from collections.abc import AsyncIterator
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import SwarmGraphServiceDep
@@ -16,6 +21,33 @@ from app.schemas.swarm import (
 router = APIRouter(prefix="/swarm")
 
 
+def _sse_message(event_name: str, data: dict[str, Any]) -> str:
+    payload = json.dumps(data, separators=(",", ":"))
+    return f"event: {event_name}\ndata: {payload}\n\n"
+
+
+async def _sse_stream(
+    events: AsyncIterator[dict[str, Any]],
+) -> AsyncIterator[str]:
+    async for envelope in events:
+        event_name = str(envelope.get("event") or "progress")
+        data = envelope.get("data")
+        if not isinstance(data, dict):
+            data = {}
+        yield _sse_message(event_name, data)
+
+
+def _streaming_response(events: AsyncIterator[dict[str, Any]]) -> StreamingResponse:
+    return StreamingResponse(
+        _sse_stream(events),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/run", response_model=SwarmRunResponse)
 async def run_swarm_graph(
     body: SwarmRunRequest,
@@ -26,6 +58,17 @@ async def run_swarm_graph(
     return SwarmRunResponse.model_validate(result)
 
 
+@router.post("/run/stream")
+async def stream_swarm_graph(
+    body: SwarmRunRequest,
+    service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    return _streaming_response(
+        service.stream_run(body.task_requirement, body.thread_id, db=db)
+    )
+
+
 @router.post("/resume", response_model=SwarmRunResponse)
 async def resume_swarm_graph(
     body: SwarmResumeRequest,
@@ -34,6 +77,15 @@ async def resume_swarm_graph(
 ) -> SwarmRunResponse:
     result = await service.resume(body.thread_id, db=db)
     return SwarmRunResponse.model_validate(result)
+
+
+@router.post("/resume/stream")
+async def stream_resume_swarm_graph(
+    body: SwarmResumeRequest,
+    service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    return _streaming_response(service.stream_resume(body.thread_id, db=db))
 
 
 @router.get("/state/{thread_id}", response_model=SwarmCheckpointResponse)

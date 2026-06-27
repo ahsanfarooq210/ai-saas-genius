@@ -146,7 +146,7 @@ The HTTP paths did not change:
 | `GET` | `/api/v1/swarm/graphs` |
 | `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` |
 
-Phase 12 streaming and human-feedback routes are still out of scope.
+At the time of the Phase 11 persistence work, streaming and human-feedback routes were out of scope. SSE progress streaming is now implemented; see [streaming.md](streaming.md). Human-feedback interrupts remain out of scope.
 
 ---
 
@@ -298,7 +298,7 @@ Then:
 
 ## Known boundaries
 
-- The implementation does not add Phase 12 SSE streaming.
+- The Phase 11 implementation did not add SSE streaming; current streaming behavior is documented in [streaming.md](streaming.md).
 - The implementation does not add human feedback interrupts.
 - Diagram and doc workers persist artifacts to Cloudinary (`storage_key` + `url` on state entries).
 - App metadata is updated at run/resume boundaries, not continuously after every node.

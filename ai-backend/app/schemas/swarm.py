@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -122,6 +122,34 @@ class SwarmSessionResponse(BaseModel):
     completed_at: str | None = None
     generated_diagrams: list[SessionArtifactResponse] = Field(default_factory=list)
     generated_docs: list[SessionArtifactResponse] = Field(default_factory=list)
+
+
+class SwarmStreamProgressEvent(BaseModel):
+    thread_id: str
+    type: Literal["task_started", "task_completed", "state_update"]
+    node: str
+    phase: Literal[
+        "supervisor",
+        "architecture",
+        "diagram",
+        "documentation",
+        "review",
+        "unknown",
+    ]
+    message: str
+    iteration_count: int | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class SwarmStreamDoneEvent(BaseModel):
+    thread_id: str
+    status: Literal["done"] = "done"
+
+
+class SwarmStreamErrorEvent(BaseModel):
+    thread_id: str
+    status: Literal["failed"] = "failed"
+    message: str
 
 
 class SwarmRunResponse(BaseModel):

@@ -1,3 +1,6 @@
+import asyncio
+import logging
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,7 +13,10 @@ from app.agent.graph_mermaid import (
 )
 from app.agent.run import build_checkpoint_payload, swarm_config
 from app.agent.state.schema import GlobalSwarmState
+from app.agent.streaming import normalize_stream_chunk
 from app.models.swarm import SwarmDebateLog, SwarmSession, SwarmSessionArtifact
+
+logger = logging.getLogger(__name__)
 
 
 def _empty_swarm_state(task_requirement: str, thread_id: str) -> GlobalSwarmState:
@@ -80,6 +86,33 @@ class SwarmGraphService:
             self._mark_session_done(db, thread_id, result)
         return result
 
+    async def stream_run(
+        self,
+        task_requirement: str,
+        thread_id: str,
+        *,
+        db: Session | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        if db is not None:
+            self._mark_session_running(db, thread_id, task_requirement)
+        async for event in self._stream_graph(
+            _empty_swarm_state(task_requirement, thread_id),
+            thread_id,
+            db=db,
+        ):
+            yield event
+
+    async def stream_resume(
+        self,
+        thread_id: str,
+        *,
+        db: Session | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        if db is not None:
+            self._mark_session_resume_running(db, thread_id)
+        async for event in self._stream_graph(None, thread_id, db=db):
+            yield event
+
     async def get_checkpoint(self, thread_id: str) -> dict[str, Any]:
         snapshot = await self._graph.aget_state(swarm_config(thread_id))
         return build_checkpoint_payload(thread_id, snapshot)
@@ -148,6 +181,49 @@ class SwarmGraphService:
             raise ValueError(str(exc)) from exc
         return {"graph_id": graph_id, "mermaid": mermaid, "xray": xray}
 
+    async def _stream_graph(
+        self,
+        graph_input: GlobalSwarmState | None,
+        thread_id: str,
+        *,
+        db: Session | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        config = swarm_config(thread_id)
+        try:
+            async for chunk in self._graph.astream(
+                graph_input,
+                config=config,
+                stream_mode=["tasks", "updates"],
+                subgraphs=True,
+                version="v2",
+            ):
+                for progress in normalize_stream_chunk(thread_id, chunk):
+                    yield {"event": "progress", "data": progress}
+
+            if db is not None:
+                snapshot = await self._graph.aget_state(config)
+                self._mark_session_done(db, thread_id, dict(snapshot.values or {}))
+            yield {
+                "event": "done",
+                "data": {"thread_id": thread_id, "status": "done"},
+            }
+        except asyncio.CancelledError:
+            if db is not None:
+                self._mark_session_failed(db, thread_id)
+            raise
+        except Exception as exc:
+            if db is not None:
+                self._mark_session_failed(db, thread_id)
+            logger.exception("Swarm graph stream failed for thread_id=%s", thread_id)
+            yield {
+                "event": "error",
+                "data": {
+                    "thread_id": thread_id,
+                    "status": "failed",
+                    "message": str(exc),
+                },
+            }
+
     @staticmethod
     def _mark_session_running(
         db: Session,
@@ -167,6 +243,14 @@ class SwarmGraphService:
             session.status = "running"
             session.completed_at = None
         db.commit()
+
+    @staticmethod
+    def _mark_session_resume_running(db: Session, thread_id: str) -> None:
+        session = db.get(SwarmSession, thread_id)
+        if session is not None:
+            session.status = "running"
+            session.completed_at = None
+            db.commit()
 
     @staticmethod
     def _mark_session_failed(db: Session, thread_id: str) -> None:
