@@ -1,4 +1,16 @@
-"""Supervisor routing — deterministic only; no LLM."""
+"""Supervisor routing — deterministic only; no LLM.
+
+The parent graph (`supervisor_graph`) runs a cyclic loop:
+
+    START → supervisor_node → (worker) → supervisor_node → … → END
+
+Each lap, `supervisor_node` increments `iteration_count`, calls `_route`, and
+writes the result to `next_agent`. LangGraph then invokes `supervisor_route`,
+which simply returns that field for `add_conditional_edges`.
+
+Workers always edge back to `supervisor_node`, so every completed phase re-enters
+the same priority-ordered gate checks on the next lap.
+"""
 
 from app.agent.state.schema import GlobalSwarmState
 
@@ -6,9 +18,16 @@ MAX_ITERATIONS = 5
 
 
 def supervisor_node(state: GlobalSwarmState) -> dict:
-    """
-    Reads state, decides what runs next, increments iteration_count.
-    Never generates content — pure routing logic only.
+    """LangGraph node: one supervisor lap.
+
+    Increments `iteration_count`, picks the next worker via `_route`, and stores
+    the choice in `next_agent` (for logging, API visibility, and conditional
+    edges). Never calls an LLM and never mutates artifacts.
+
+    Circuit breaker: iteration is incremented *before* routing. Passes
+    1..MAX_ITERATIONS call `_route` normally; pass MAX_ITERATIONS + 1 and
+    beyond force `"END"` regardless of state. That lets the 5th pass still route
+    (e.g. into `doc_generator_graph`) while preventing infinite reject/revise loops.
     """
     iteration = state.get("iteration_count", 0) + 1
 
@@ -28,9 +47,32 @@ def supervisor_node(state: GlobalSwarmState) -> dict:
 
 
 def _route(state: GlobalSwarmState) -> str:
-    """
-    Priority-ordered routing rules — checked top to bottom.
-    Circuit breaker is handled in supervisor_node (post-increment).
+    """Decide which graph node runs next from current state.
+
+    Rules are evaluated top to bottom; the first match wins. Each rule is a
+    pipeline gate — later stages are unreachable until earlier ones pass.
+
+    Gate order (happy path)
+    -----------------------
+    1. Architecture   — `component_list` non-empty (filled by `architect_graph`)
+    2. Documentation  — `docs_complete` is True (set by `doc_generator_graph`)
+    3. Scalability    — `scalability_feedback` non-empty and not rejected
+    4. Security       — `security_feedback` non-empty and not rejected
+    5. Done           — both reviewers approved → `"END"`
+
+    Reviewer feedback semantics
+    ---------------------------
+    Reviewer nodes write Markdown into `scalability_feedback` /
+    `security_feedback`, ending with `STATUS: APPROVED` or `STATUS: REJECTED`.
+
+    - Empty string (`""`) → review has not run yet → route to that reviewer.
+    - Substring `"REJECTED"` anywhere in the text → send back to
+      `"architect_graph"` so the architecture can be revised (docs and reviews
+      re-run on later laps as gates fail again).
+    - Any other non-empty value (typically containing `"APPROVED"`) → gate
+      passed; fall through to the next rule.
+
+    Return values map 1:1 to node names in `supervisor_graph.add_conditional_edges`.
     """
     if not state.get("component_list"):
         return "architect_graph"
@@ -54,8 +96,10 @@ def _route(state: GlobalSwarmState) -> str:
 
 
 def supervisor_route(state: GlobalSwarmState) -> str:
-    """
-    Routing function passed to add_conditional_edges.
-    Reads next_agent from state — set by supervisor_node just before this runs.
+    """LangGraph conditional-edge selector for the supervisor node.
+
+    Must stay a thin read of `next_agent`; all routing policy lives in
+    `supervisor_node` / `_route` so tests can call `_route` directly without
+    simulating LangGraph edge dispatch.
     """
     return state["next_agent"]
