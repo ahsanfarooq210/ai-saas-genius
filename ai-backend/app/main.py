@@ -6,6 +6,7 @@ from app.agent.storage.file_store import artifact_store
 from app.agent.graphs.supervisor_graph import build_supervisor_graph
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.langfuse import shutdown_langfuse
 from app.db.checkpointer import postgres_checkpointer
 from app.db.migration_check import validate_required_app_tables
 from app.db.session import engine
@@ -20,7 +21,10 @@ async def lifespan(app: FastAPI):
     async with postgres_checkpointer() as checkpointer:
         graph = build_supervisor_graph(checkpointer)
         app.state.swarm_graph_service = SwarmGraphService(graph)
-        yield
+        try:
+            yield
+        finally:
+            shutdown_langfuse()
 
 
 app = FastAPI(lifespan=lifespan)

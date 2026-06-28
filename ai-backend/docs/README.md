@@ -41,6 +41,8 @@ Read these in order if you are new to the backend:
 
 **Recent change:**
 
+- [changes/2026-06-28-langfuse-tracing.md](changes/2026-06-28-langfuse-tracing.md) — change log and rollback notes for optional Langfuse tracing on swarm graph execution
+- [changes/2026-06-28-sync-db-threadpool-offload.md](changes/2026-06-28-sync-db-threadpool-offload.md) — change log and rollback notes for offloading sync SQLAlchemy persistence from async FastAPI call paths
 - [current/authentication.md](current/authentication.md) — live JWT signup/login/refresh and request authentication contract
 - [changes/2026-06-28-documentation-restructure.md](changes/2026-06-28-documentation-restructure.md) - change log for the graph/persistence docs cleanup
 - [current/streaming.md](current/streaming.md) — live SSE progress streaming for swarm runs and resumes

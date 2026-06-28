@@ -16,12 +16,13 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 
 | File | Role |
 |------|------|
-| `app/main.py` | App lifespan, Postgres checkpointer, service registration |
+| `app/main.py` | App lifespan, Postgres checkpointer, service registration, Langfuse shutdown |
 | `app/api/v1/router.py` | Route registration |
 | `app/api/v1/endpoints/auth.py` | JWT signup/login/signin/refresh/me handlers |
 | `app/api/v1/endpoints/swarm.py` | Swarm HTTP handlers |
 | `app/middleware/auth.py` | JWT route middleware for protected API paths |
-| `app/services/swarm_graph_service.py` | Async graph invoke/resume, streaming progress, checkpoint payload, app metadata writes |
+| `app/services/swarm_graph_service.py` | Async graph invoke/resume, streaming progress, checkpoint payload, app metadata writes, Langfuse trace boundaries |
+| `app/core/langfuse.py` | Optional Langfuse SDK setup, root swarm spans, LangChain callback config |
 | `app/agent/run.py` | Checkpoint payload shaping |
 | `app/agent/streaming.py` | LangGraph stream event normalization and sanitization |
 | `app/agent/graphs/` | Parent + subgraph topology |
@@ -39,6 +40,8 @@ All `/api/v1/swarm/*` routes require a bearer access token issued by `/api/v1/au
 4. Graph runs until `END` or iteration cap
 5. `SwarmGraphService` updates `sessions` with the final graph-state projection and mirrors final artifacts/debate logs
 6. Response validated as `SwarmRunResponse` / `SwarmCheckpointResponse`
+
+When `LANGFUSE_TRACING_ENABLED=true` and both Langfuse API keys are present, `SwarmGraphService` wraps run/resume/stream graph calls in root Langfuse spans and passes the Langfuse LangChain callback into the LangGraph config. Keys alone do not enable tracing. Each `thread_id` is used as the Langfuse `session_id`; root span output is summarized to counts/status instead of storing the full graph state.
 
 Streaming variants (`POST /api/v1/swarm/run/stream`, `POST /api/v1/swarm/resume/stream`) use the same graph/service path but return SSE progress events instead of the final result body. After `event: done`, clients fetch durable state/session data by `thread_id`. See [streaming.md](streaming.md).
 
@@ -157,6 +160,20 @@ For the full persistence flow, see [../persistence/session-data-flow.md](../pers
 
 Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/main.py).
 
+## Observability
+
+Langfuse tracing is optional and explicitly enabled:
+
+| Setting | Purpose |
+|---------|---------|
+| `LANGFUSE_TRACING_ENABLED` | Enables/disables tracing when credentials exist |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Langfuse project API keys |
+| `LANGFUSE_BASE_URL` | Langfuse Cloud or self-hosted endpoint |
+| `LANGFUSE_TRACING_ENVIRONMENT` | Environment tag sent to Langfuse; defaults to `APP_ENV` |
+| `LANGFUSE_CAPTURE_INPUT` | Controls whether root spans include the submitted task requirement |
+
+LLM prompts, model names, token usage, and nested graph observations are captured through the Langfuse LangChain callback when tracing is enabled.
+
 ---
 
 ## Wired vs not wired
@@ -170,6 +187,7 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 - SSE progress streaming for run/resume with sanitized graph events
 - Session-table final graph-state projection for durable result reads
 - JWT signup/login/signin/refresh/me endpoints and protected `/api/v1/swarm/*` routes
+- Optional Langfuse tracing for swarm run/resume/stream operations
 
 **On disk but not in active graph:**
 

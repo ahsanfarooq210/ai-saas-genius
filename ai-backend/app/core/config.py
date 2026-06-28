@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: Optional[str] = None
     CLOUDINARY_API_SECRET: Optional[str] = None
     CLOUDINARY_ARTIFACT_FOLDER: str = "swarm-artifacts"
+    LANGFUSE_TRACING_ENABLED: bool = False
+    LANGFUSE_PUBLIC_KEY: Optional[str] = None
+    LANGFUSE_SECRET_KEY: Optional[str] = None
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+    LANGFUSE_TRACING_ENVIRONMENT: Optional[str] = None
+    LANGFUSE_CAPTURE_INPUT: bool = True
     # If unset, non-localhost hosts get sslmode=require (Neon/Supabase/RDS). Override with "disable" for local Docker, etc.
     LANGGRAPH_POSTGRES_SSLMODE: Optional[str] = None
 
@@ -62,6 +68,13 @@ class Settings(BaseSettings):
         return _with_langgraph_postgres_params(
             u,
             sslmode_override=self.LANGGRAPH_POSTGRES_SSLMODE,
+        )
+
+    def langfuse_enabled(self) -> bool:
+        return bool(
+            self.LANGFUSE_TRACING_ENABLED
+            and self.LANGFUSE_PUBLIC_KEY
+            and self.LANGFUSE_SECRET_KEY
         )
 
 
