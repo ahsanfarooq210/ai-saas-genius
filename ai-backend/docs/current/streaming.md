@@ -23,7 +23,7 @@ The durable result remains available through checkpoint/session reads by `thread
 POST /api/v1/swarm/run/stream       -> live progress events
 POST /api/v1/swarm/resume/stream    -> live progress events for a resumed thread
 GET  /api/v1/swarm/state/{id}       -> checkpoint summary after/during the run
-GET  /api/v1/swarm/sessions/{id}    -> persisted session and artifact metadata
+GET  /api/v1/swarm/sessions/{id}    -> persisted graph-state, session, artifact, and debate metadata
 ```
 
 Do not call `POST /api/v1/swarm/run` after a streaming run just to fetch the result; that is a separate run path. Reuse the same `thread_id` with the GET endpoints.
@@ -236,6 +236,8 @@ After `event: done`, fetch state/session data:
 curl http://localhost:8000/api/v1/swarm/state/curl-stream-001
 curl http://localhost:8000/api/v1/swarm/sessions/curl-stream-001
 ```
+
+`/sessions/{thread_id}` is the durable app-table result read. It includes the final graph-state projection mirrored into the `sessions` row, including architecture fields, plans, reviewer feedback, supervisor state, final artifact rows, and debate logs. It intentionally reads from app tables, not directly from the live SSE stream.
 
 Postman can call the same `POST` endpoint with `Accept: text/event-stream`, but if it buffers the response, use `curl -N` to verify true chunking.
 

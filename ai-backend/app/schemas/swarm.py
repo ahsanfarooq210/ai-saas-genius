@@ -118,6 +118,19 @@ class SwarmSessionResponse(BaseModel):
     complexity: int | None = None
     diagram_count: int | None = None
     doc_count: int | None = None
+    architecture_draft: str = ""
+    architecture_json: dict[str, Any] = Field(default_factory=dict)
+    component_list: list[str] = Field(default_factory=list)
+    current_architecture_mermaid: str = ""
+    diagram_plan: list[str] = Field(default_factory=list)
+    doc_plan: list[str] = Field(default_factory=list)
+    deep_dive_notes: str = ""
+    docs_complete: bool = False
+    iteration_count: int = 0
+    next_agent: str = ""
+    scalability_feedback: str = ""
+    security_feedback: str = ""
+    debate_logs: list[DebateLogEntryResponse] = Field(default_factory=list)
     created_at: str | None = None
     completed_at: str | None = None
     generated_diagrams: list[SessionArtifactResponse] = Field(default_factory=list)

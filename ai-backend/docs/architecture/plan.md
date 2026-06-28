@@ -621,7 +621,7 @@ Returns a checkpoint snapshot including next nodes, plans, artifact metadata, re
 
 **GET /api/v1/swarm/sessions/{thread_id}**
 
-Returns persisted session metadata plus generated artifact records.
+Returns persisted session metadata, the final graph-state projection, generated artifact records, and debate logs.
 
 **GET /api/v1/swarm/graphs**
 

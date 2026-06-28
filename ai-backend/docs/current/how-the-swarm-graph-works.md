@@ -212,7 +212,7 @@ The streaming variant uses the same graph path but different transport:
 
 ```text
 POST /api/v1/swarm/run/stream → SSE progress events → event: done
-GET  /api/v1/swarm/state/{thread_id} or /sessions/{thread_id} → durable result metadata
+GET  /api/v1/swarm/state/{thread_id} or /sessions/{thread_id} → durable graph state and result metadata
 ```
 
 Streaming does not change graph topology. `SwarmGraphService` calls LangGraph `astream(..., stream_mode=["tasks", "updates"], subgraphs=True, version="v2")`, and `app/agent/streaming.py` sanitizes raw chunks before the API sends SSE frames. See [streaming.md](streaming.md).
@@ -254,7 +254,7 @@ Doc workers look for a paired diagram with [`_find_paired_diagram`](../../app/ag
 | `POST` | `/api/v1/swarm/resume` | Continue checkpointed thread |
 | `POST` | `/api/v1/swarm/resume/stream` | Continue checkpointed thread with SSE progress events |
 | `GET` | `/api/v1/swarm/state/{thread_id}` | Checkpoint summary |
-| `GET` | `/api/v1/swarm/sessions/{thread_id}` | App `sessions` row + artifact metadata |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}` | App `sessions` row + persisted graph-state projection, artifacts, and debate logs |
 | `GET` | `/api/v1/swarm/graphs` | List compiled graph ids (`supervisor`, `architect`, `doc_generator`) |
 | `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` | Mermaid topology from [`graph_mermaid.py`](../../app/agent/graph_mermaid.py) |
 | `GET` | `/health` | Health check |

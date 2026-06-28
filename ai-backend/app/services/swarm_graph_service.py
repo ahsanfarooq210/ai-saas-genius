@@ -156,6 +156,12 @@ class SwarmGraphService:
             for artifact in artifacts
             if artifact.artifact_type == "doc"
         ]
+        debate_logs = (
+            db.query(SwarmDebateLog)
+            .filter(SwarmDebateLog.thread_id == thread_id)
+            .order_by(SwarmDebateLog.iteration, SwarmDebateLog.id)
+            .all()
+        )
         return {
             "thread_id": session.thread_id,
             "requirement": session.requirement,
@@ -163,6 +169,27 @@ class SwarmGraphService:
             "complexity": session.complexity,
             "diagram_count": session.diagram_count,
             "doc_count": session.doc_count,
+            "architecture_draft": session.architecture_draft or "",
+            "architecture_json": session.architecture_json or {},
+            "component_list": session.component_list or [],
+            "current_architecture_mermaid": session.current_architecture_mermaid or "",
+            "diagram_plan": session.diagram_plan or [],
+            "doc_plan": session.doc_plan or [],
+            "deep_dive_notes": session.deep_dive_notes or "",
+            "docs_complete": bool(session.docs_complete),
+            "iteration_count": int(session.iteration_count or 0),
+            "next_agent": session.next_agent or "",
+            "scalability_feedback": session.scalability_feedback or "",
+            "security_feedback": session.security_feedback or "",
+            "debate_logs": [
+                {
+                    "agent": log.agent,
+                    "feedback": log.feedback,
+                    "status": log.status,
+                    "iteration": log.iteration,
+                }
+                for log in debate_logs
+            ],
             "created_at": session.created_at.isoformat() if session.created_at else None,
             "completed_at": (
                 session.completed_at.isoformat() if session.completed_at else None
@@ -275,6 +302,20 @@ class SwarmGraphService:
         session.complexity = int(result.get("complexity_score") or 0)
         session.diagram_count = len(result.get("generated_diagrams") or [])
         session.doc_count = len(result.get("generated_docs") or [])
+        session.architecture_draft = result.get("architecture_draft") or ""
+        session.architecture_json = result.get("architecture_json") or {}
+        session.component_list = result.get("component_list") or []
+        session.current_architecture_mermaid = (
+            result.get("current_architecture_mermaid") or ""
+        )
+        session.diagram_plan = result.get("diagram_plan") or []
+        session.doc_plan = result.get("doc_plan") or []
+        session.deep_dive_notes = result.get("deep_dive_notes") or ""
+        session.docs_complete = bool(result.get("docs_complete"))
+        session.iteration_count = int(result.get("iteration_count") or 0)
+        session.next_agent = result.get("next_agent") or ""
+        session.scalability_feedback = result.get("scalability_feedback") or ""
+        session.security_feedback = result.get("security_feedback") or ""
 
         db.query(SwarmDebateLog).filter(
             SwarmDebateLog.thread_id == thread_id,

@@ -120,7 +120,19 @@ def test_run_creates_and_finalizes_swarm_session_with_debate_logs() -> None:
     graph = FakeAsyncGraph(
         {
             "thread_id": "thread-4",
+            "architecture_draft": "",
+            "architecture_json": {
+                "API Gateway": {
+                    "description": "public edge",
+                    "relations": ["URL Service"],
+                }
+            },
+            "component_list": ["API Gateway", "URL Service"],
+            "current_architecture_mermaid": "flowchart TD\nAPI-->URL",
             "complexity_score": 7,
+            "diagram_plan": ["overview", "component-api-gateway"],
+            "doc_plan": ["overview.md", "component-api-gateway.md"],
+            "deep_dive_notes": "",
             "generated_diagrams": [
                 {
                     "diagram_type": "overview",
@@ -138,6 +150,11 @@ def test_run_creates_and_finalizes_swarm_session_with_debate_logs() -> None:
                     "url": "https://cdn.example/thread-4/overview.md",
                 }
             ],
+            "docs_complete": True,
+            "iteration_count": 3,
+            "next_agent": "END",
+            "scalability_feedback": "Looks scalable.\n\nSTATUS: APPROVED",
+            "security_feedback": "Looks secure.\n\nSTATUS: APPROVED",
             "debate_logs": [
                 {
                     "agent": "scalability",
@@ -161,6 +178,21 @@ def test_run_creates_and_finalizes_swarm_session_with_debate_logs() -> None:
     assert session.complexity == 7
     assert session.diagram_count == 1
     assert session.doc_count == 1
+    assert session.architecture_json == {
+        "API Gateway": {
+            "description": "public edge",
+            "relations": ["URL Service"],
+        }
+    }
+    assert session.component_list == ["API Gateway", "URL Service"]
+    assert session.current_architecture_mermaid == "flowchart TD\nAPI-->URL"
+    assert session.diagram_plan == ["overview", "component-api-gateway"]
+    assert session.doc_plan == ["overview.md", "component-api-gateway.md"]
+    assert session.docs_complete is True
+    assert session.iteration_count == 3
+    assert session.next_agent == "END"
+    assert session.scalability_feedback == "Looks scalable.\n\nSTATUS: APPROVED"
+    assert session.security_feedback == "Looks secure.\n\nSTATUS: APPROVED"
     assert len(logs) == 1
     assert logs[0].agent == "scalability"
     assert logs[0].status == "APPROVED"
@@ -238,6 +270,21 @@ def test_get_session_returns_sql_summary_and_artifact_urls() -> None:
             complexity=5,
             diagram_count=1,
             doc_count=1,
+            architecture_json={
+                "API Gateway": {
+                    "description": "public edge",
+                    "relations": ["URL Service"],
+                }
+            },
+            component_list=["API Gateway", "URL Service"],
+            current_architecture_mermaid="flowchart TD\nAPI-->URL",
+            diagram_plan=["overview", "component-api-gateway"],
+            doc_plan=["overview.md", "component-api-gateway.md"],
+            docs_complete=True,
+            iteration_count=4,
+            next_agent="END",
+            scalability_feedback="Looks scalable.\n\nSTATUS: APPROVED",
+            security_feedback="Looks secure.\n\nSTATUS: APPROVED",
         )
     )
     db.add_all(
@@ -262,6 +309,15 @@ def test_get_session_returns_sql_summary_and_artifact_urls() -> None:
             ),
         ]
     )
+    db.add(
+        SwarmDebateLog(
+            thread_id="thread-7",
+            agent="security",
+            feedback="Looks secure.\n\nSTATUS: APPROVED",
+            status="APPROVED",
+            iteration=4,
+        )
+    )
     db.commit()
     service = SwarmGraphService(FakeAsyncGraph())
 
@@ -269,6 +325,29 @@ def test_get_session_returns_sql_summary_and_artifact_urls() -> None:
 
     assert payload["thread_id"] == "thread-7"
     assert payload["status"] == "done"
+    assert payload["architecture_json"] == {
+        "API Gateway": {
+            "description": "public edge",
+            "relations": ["URL Service"],
+        }
+    }
+    assert payload["component_list"] == ["API Gateway", "URL Service"]
+    assert payload["current_architecture_mermaid"] == "flowchart TD\nAPI-->URL"
+    assert payload["diagram_plan"] == ["overview", "component-api-gateway"]
+    assert payload["doc_plan"] == ["overview.md", "component-api-gateway.md"]
+    assert payload["docs_complete"] is True
+    assert payload["iteration_count"] == 4
+    assert payload["next_agent"] == "END"
+    assert payload["scalability_feedback"] == "Looks scalable.\n\nSTATUS: APPROVED"
+    assert payload["security_feedback"] == "Looks secure.\n\nSTATUS: APPROVED"
+    assert payload["debate_logs"] == [
+        {
+            "agent": "security",
+            "feedback": "Looks secure.\n\nSTATUS: APPROVED",
+            "status": "APPROVED",
+            "iteration": 4,
+        }
+    ]
     assert payload["generated_diagrams"][0]["storage_key"] == (
         "swarm-artifacts/thread-7/diagrams/iter1_overview.mmd"
     )
@@ -302,7 +381,17 @@ def test_mark_session_done_replaces_existing_artifact_rows() -> None:
         db,
         "thread-8",
         {
+            "architecture_json": {
+                "URL Service": {
+                    "description": "creates short urls",
+                    "relations": [],
+                }
+            },
+            "component_list": ["URL Service"],
+            "current_architecture_mermaid": "flowchart TD\nURL[URL Service]",
             "complexity_score": 2,
+            "diagram_plan": ["overview"],
+            "doc_plan": ["overview.md"],
             "generated_diagrams": [
                 {
                     "diagram_type": "overview",
@@ -313,10 +402,26 @@ def test_mark_session_done_replaces_existing_artifact_rows() -> None:
                 }
             ],
             "generated_docs": [],
+            "docs_complete": False,
+            "iteration_count": 2,
+            "next_agent": "doc_generator_graph",
             "debate_logs": [],
         },
     )
 
     artifacts = db.query(SwarmSessionArtifact).filter_by(thread_id="thread-8").all()
+    session = db.get(SwarmSession, "thread-8")
     assert len(artifacts) == 1
     assert artifacts[0].storage_key == "swarm-artifacts/thread-8/diagrams/iter2_overview.mmd"
+    assert session is not None
+    assert session.architecture_json == {
+        "URL Service": {
+            "description": "creates short urls",
+            "relations": [],
+        }
+    }
+    assert session.component_list == ["URL Service"]
+    assert session.diagram_plan == ["overview"]
+    assert session.doc_plan == ["overview.md"]
+    assert session.iteration_count == 2
+    assert session.next_agent == "doc_generator_graph"

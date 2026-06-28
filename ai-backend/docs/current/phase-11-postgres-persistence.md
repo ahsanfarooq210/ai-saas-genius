@@ -166,6 +166,18 @@ This table tracks one user-facing swarm run per `thread_id`.
 | `complexity` | Final `complexity_score` from graph state |
 | `diagram_count` | Number of final `generated_diagrams` |
 | `doc_count` | Number of final `generated_docs` |
+| `architecture_draft` | Final architecture draft text |
+| `architecture_json` | Final architecture object returned by the architect |
+| `component_list` | Final component names |
+| `current_architecture_mermaid` | Final architecture Mermaid summary |
+| `diagram_plan` | Final planned diagram entries |
+| `doc_plan` | Final planned documentation entries |
+| `deep_dive_notes` | Final deep-dive notes when present |
+| `docs_complete` | Whether the doc reducer completed |
+| `iteration_count` | Final supervisor iteration |
+| `next_agent` | Final supervisor route |
+| `scalability_feedback` | Final scalability reviewer feedback |
+| `security_feedback` | Final security reviewer feedback |
 | `created_at` | Server timestamp |
 | `completed_at` | Set when graph succeeds or fails |
 
@@ -174,7 +186,7 @@ Run behavior:
 | Event | DB write |
 |-------|----------|
 | `/swarm/run` starts | Insert or update row to `running`; commit before graph execution |
-| Graph succeeds | Set `done`, counts, complexity, `completed_at` |
+| Graph succeeds | Set `done`, counts, complexity, final graph-state projection, `completed_at` |
 | Graph raises | Set `failed`, `completed_at`, then re-raise |
 | `/swarm/resume` succeeds | Update existing row from returned graph state |
 
@@ -234,7 +246,7 @@ The Phase 11 implementation does not convert the app/Alembic URL to an async SQL
 
 ## Why state and app metadata are separate
 
-LangGraph checkpoints are the source of truth for resumable graph execution. They store graph state snapshots and pending execution metadata. App tables are a smaller user-facing projection.
+LangGraph checkpoints are the source of truth for resumable graph execution. They store graph state snapshots and pending execution metadata. App tables are a user-facing projection of the latest completed result.
 
 This separation keeps responsibilities clean:
 
@@ -242,10 +254,13 @@ This separation keeps responsibilities clean:
 |---------|-----------|
 | Resume exact graph execution | LangGraph checkpoint tables |
 | Inspect full graph state via `/state/{thread_id}` | LangGraph checkpoint snapshot shaped by `build_checkpoint_payload()` |
+| Read final result fields without invoking the graph | `sessions`, `session_artifacts`, `debate_logs` |
 | List run status, counts, requirement, completion time | `sessions` |
 | Query reviewer critiques by thread | `debate_logs` |
 
 The service writes app metadata after graph calls instead of writing inside graph nodes. That keeps LangGraph node logic focused on architecture generation and avoids introducing SQLAlchemy dependencies into subagents.
+
+Migration `003_add_session_graph_state.py` adds the graph-state projection columns to `sessions`. Older rows can return defaults for these fields until the thread is run or resumed again.
 
 ---
 
@@ -262,7 +277,7 @@ PYTHONPATH=. pytest tests/test_checkpointer_phase11.py \
 Expected result after the current implementation:
 
 ```text
-13 passed
+18 passed
 ```
 
 Full suite:
@@ -274,7 +289,7 @@ PYTHONPATH=. pytest -q
 Expected result after the current implementation:
 
 ```text
-45 passed
+68 passed
 ```
 
 Manual Postgres acceptance flow:

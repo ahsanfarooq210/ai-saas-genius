@@ -34,6 +34,7 @@ Read these in order if you are new to the swarm:
 
 - [current/streaming.md](current/streaming.md) — live SSE progress streaming for swarm runs and resumes
 - [changes/2026-06-28-swarm-streaming-progress.md](changes/2026-06-28-swarm-streaming-progress.md) — change log for streaming endpoints, event normalization, and error handling
+- [changes/2026-06-28-session-graph-state-persistence.md](changes/2026-06-28-session-graph-state-persistence.md) — change log for persisting final graph-state fields in the `sessions` table
 - [current/phase-11-postgres-persistence.md](current/phase-11-postgres-persistence.md) — Phase 11 Postgres checkpointing and app metadata tables
 - [changes/2026-05-30-subgraph-artifact-merge-fix.md](changes/2026-05-30-subgraph-artifact-merge-fix.md) — fix for duplicate diagrams/docs in API responses
 

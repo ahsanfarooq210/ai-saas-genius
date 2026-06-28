@@ -33,7 +33,7 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 2. `SwarmGraphService` writes a `sessions` row as `running`
 3. `SwarmGraphService` invokes the compiled supervisor graph with `_empty_swarm_state`
 4. Graph runs until `END` or iteration cap
-5. `SwarmGraphService` updates `sessions` and mirrors final `debate_logs`
+5. `SwarmGraphService` updates `sessions` with the final graph-state projection and mirrors final artifacts/debate logs
 6. Response validated as `SwarmRunResponse` / `SwarmCheckpointResponse`
 
 Streaming variants (`POST /api/v1/swarm/run/stream`, `POST /api/v1/swarm/resume/stream`) use the same graph/service path but return SSE progress events instead of the final result body. After `event: done`, clients fetch durable state/session data by `thread_id`. See [streaming.md](streaming.md).
@@ -122,6 +122,8 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 
 Graph introspection is backed by [`app/agent/graph_mermaid.py`](../../app/agent/graph_mermaid.py) (`supervisor`, `architect`, `doc_generator`).
 
+`/api/v1/swarm/sessions/{thread_id}` is the app-table result view. It returns the `sessions` row plus persisted final graph fields (`architecture_json`, `component_list`, Mermaid summary, plans, reviewer feedback, supervisor state), final artifact rows, and mirrored debate logs. `/api/v1/swarm/state/{thread_id}` remains the checkpoint-backed state view.
+
 ---
 
 ## Artifacts
@@ -144,6 +146,7 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 - LLM reviewers with `REJECTED` → architect rerun
 - Subgraph artifact reset and parent plain-list merge (2026-05-30)
 - SSE progress streaming for run/resume with sanitized graph events
+- Session-table final graph-state projection for durable result reads
 
 **On disk but not in active graph:**
 

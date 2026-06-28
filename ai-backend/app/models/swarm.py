@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -20,6 +20,18 @@ class SwarmSession(Base):
     complexity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     diagram_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     doc_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    architecture_draft: Mapped[str | None] = mapped_column(Text, nullable=True)
+    architecture_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    component_list: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    current_architecture_mermaid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    diagram_plan: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    doc_plan: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    deep_dive_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docs_complete: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    iteration_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    next_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scalability_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    security_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

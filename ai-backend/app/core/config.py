@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # OpenCode Go (OpenAI-compatible); used by `app.core.llm.get_chat_llm`.
     OPENCODE_API_KEY: Optional[str] = None
     OPENCODE_BASE_URL: str = "https://opencode.ai/zen/go/v1"
-    OPENCODE_MODEL: str = "kimi-k2.6"
+    OPENCODE_MODEL: str = "glm-5.2"
     OPENCODE_TEMPERATURE: float = 0.2
     UPLOAD_STORAGE_DIR: str = "uploads"
     CLOUDINARY_CLOUD_NAME: Optional[str] = None

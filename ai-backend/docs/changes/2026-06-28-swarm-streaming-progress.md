@@ -117,7 +117,7 @@ POST /api/v1/swarm/run/stream
 
 GET /api/v1/swarm/state/{thread_id}
 GET /api/v1/swarm/sessions/{thread_id}
-  -> durable final state/session metadata
+  -> durable final graph-state/session/artifact metadata
 ```
 
 Do not call `POST /api/v1/swarm/run` after a streaming run just to retrieve the result. That starts the non-streaming run path. Use the same `thread_id` with the read endpoints.
