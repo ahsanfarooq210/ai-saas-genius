@@ -31,7 +31,7 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 
 ## Runtime flow
 
-All `/api/v1/swarm/*` routes require a bearer access token issued by `/api/v1/auth/login`, `/api/v1/auth/signin`, or `/api/v1/auth/signup`.
+All `/api/v1/swarm/*` routes require a bearer access token issued by `/api/v1/auth/login`, `/api/v1/auth/signin`, or `/api/v1/auth/signup`. See [authentication.md](authentication.md) for request examples.
 
 1. `POST /api/v1/swarm/run` or `resume` in `swarm.py`
 2. `SwarmGraphService` writes a `sessions` row as `running`
@@ -139,6 +139,8 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 Graph introspection is backed by [`app/agent/graph_mermaid.py`](../../app/agent/graph_mermaid.py) (`supervisor`, `architect`, `doc_generator`).
 
 `/api/v1/auth/*` endpoints are public except `/api/v1/auth/me`, which uses the same access-token dependency as protected routes. The JWT middleware protects non-auth `/api/v1/*` paths and supports `Authorization: Bearer <token>` plus the existing `accessToken` cookie fallback.
+
+For login, signup, refresh, and authenticated request examples, see [authentication.md](authentication.md).
 
 `/api/v1/swarm/sessions/{thread_id}` is the app-table result view. It returns the `sessions` row plus persisted final graph fields (`architecture_json`, `component_list`, Mermaid summary, plans, reviewer feedback, supervisor state), final artifact rows, and mirrored debate logs. `/api/v1/swarm/state/{thread_id}` remains the checkpoint-backed state view.
 
