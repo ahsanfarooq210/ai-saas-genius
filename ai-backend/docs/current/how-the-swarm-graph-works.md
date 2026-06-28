@@ -4,6 +4,8 @@
 
 **Live code wins:** If anything here disagrees with Python under `app/agent/`, trust the code and update this doc.
 
+**Newer clean graph reference:** Start with [`../graphs/overview.md`](../graphs/overview.md), then read [`../graphs/supervisor-graph.md`](../graphs/supervisor-graph.md), [`../graphs/architect-subgraph.md`](../graphs/architect-subgraph.md), and [`../graphs/doc-generator-subgraph.md`](../graphs/doc-generator-subgraph.md). This file remains as a broader historical end-to-end explanation.
+
 **Prerequisites:** Basic LangGraph concepts (nodes, edges, state, checkpoints). For merge semantics (reducers vs replace), read [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md) next.
 
 ---

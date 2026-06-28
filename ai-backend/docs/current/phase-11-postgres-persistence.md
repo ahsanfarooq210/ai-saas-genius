@@ -4,6 +4,8 @@ This document describes the live Phase 11 persistence implementation. It explain
 
 If this document disagrees with code, trust the code.
 
+For the cleaner current reference, start with [`../persistence/checkpointer-postgres-alembic.md`](../persistence/checkpointer-postgres-alembic.md), then [`../persistence/session-data-flow.md`](../persistence/session-data-flow.md). This file remains as the Phase 11 implementation history and detailed notes.
+
 ---
 
 ## What Phase 11 changed

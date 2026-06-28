@@ -2,7 +2,7 @@
 
 Live backend behavior as implemented in code. If this file disagrees with the repo, **trust the code** and update this document.
 
-**New readers:** start with [how-the-swarm-graph-works.md](how-the-swarm-graph-works.md), then [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md).
+**New readers:** start with [../graphs/overview.md](../graphs/overview.md), then [../persistence/checkpointer-postgres-alembic.md](../persistence/checkpointer-postgres-alembic.md), then [../persistence/session-data-flow.md](../persistence/session-data-flow.md).
 
 ---
 
@@ -41,6 +41,13 @@ Streaming variants (`POST /api/v1/swarm/run/stream`, `POST /api/v1/swarm/resume/
 ---
 
 ## Live graph topology
+
+The clean graph reference lives in [`../graphs/`](../graphs/):
+
+- [overview.md](../graphs/overview.md)
+- [supervisor-graph.md](../graphs/supervisor-graph.md)
+- [architect-subgraph.md](../graphs/architect-subgraph.md)
+- [doc-generator-subgraph.md](../graphs/doc-generator-subgraph.md)
 
 ### Parent graph (`supervisor_graph.py`)
 
@@ -98,7 +105,7 @@ Important fields:
 | `ArchitectGraphState` | `generated_diagrams` → `operator.add` |
 | `DocGraphState` | `generated_docs` → `operator.add` |
 
-Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md).
+Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md) and [../graphs/overview.md](../graphs/overview.md).
 
 ### Artifact reset
 
@@ -123,6 +130,8 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 Graph introspection is backed by [`app/agent/graph_mermaid.py`](../../app/agent/graph_mermaid.py) (`supervisor`, `architect`, `doc_generator`).
 
 `/api/v1/swarm/sessions/{thread_id}` is the app-table result view. It returns the `sessions` row plus persisted final graph fields (`architecture_json`, `component_list`, Mermaid summary, plans, reviewer feedback, supervisor state), final artifact rows, and mirrored debate logs. `/api/v1/swarm/state/{thread_id}` remains the checkpoint-backed state view.
+
+For the full persistence flow, see [../persistence/session-data-flow.md](../persistence/session-data-flow.md).
 
 ---
 
