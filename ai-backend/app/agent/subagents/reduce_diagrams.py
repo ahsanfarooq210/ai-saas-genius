@@ -11,6 +11,10 @@ def reduce_diagrams_node(state: ArchitectGraphState) -> dict[str, Any]:
     """
     Runs after ALL parallel diagram_generator_node workers complete.
     LangGraph starts this node only when every Send worker has returned.
+
+    The subgraph accumulator uses operator.add so parallel workers can append.
+    At this fan-in boundary we must Overwrite the list; otherwise the reduced
+    list can merge back into the accumulator and duplicate diagram entries.
     """
     all_diagrams: list[DiagramEntry] = state.get("generated_diagrams", [])
     valid_diagrams = [d for d in all_diagrams if d.get("storage_key") and d.get("url")]

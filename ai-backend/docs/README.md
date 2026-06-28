@@ -20,17 +20,19 @@ Read these in order if you are new to the backend:
 |---|----------|-------------|
 | 1 | [current/project-state.md](current/project-state.md) | live API, wired features, known gaps, and code map |
 | 2 | [graphs/overview.md](graphs/overview.md) | how API, service, parent graph, subgraphs, checkpoints, and app tables work together |
-| 3 | [graphs/supervisor-graph.md](graphs/supervisor-graph.md) | parent loop, deterministic routing, reviewer reruns, iteration cap |
-| 4 | [graphs/architect-subgraph.md](graphs/architect-subgraph.md) | architecture drafting, complexity scoring, diagram workers, artifact reset |
-| 5 | [graphs/doc-generator-subgraph.md](graphs/doc-generator-subgraph.md) | Markdown doc workers, paired diagrams, doc reduction |
-| 6 | [persistence/checkpointer-postgres-alembic.md](persistence/checkpointer-postgres-alembic.md) | external Postgres checkpointer and Alembic-managed app tables |
-| 7 | [persistence/session-data-flow.md](persistence/session-data-flow.md) | complete run/resume/session save and read flow |
-| 8 | [current/streaming.md](current/streaming.md) | live SSE progress streaming contract and implementation |
-| 9 | [architecture/plan.md](architecture/plan.md) | target / roadmap; not guaranteed to match live code |
+| 3 | [graphs/subgraph-state-transfer.md](graphs/subgraph-state-transfer.md) | how subgraph outputs merge back into `GlobalSwarmState` |
+| 4 | [graphs/supervisor-graph.md](graphs/supervisor-graph.md) | parent loop, deterministic routing, reviewer reruns, iteration cap |
+| 5 | [graphs/architect-subgraph.md](graphs/architect-subgraph.md) | architecture drafting, complexity scoring, diagram workers, artifact reset |
+| 6 | [graphs/doc-generator-subgraph.md](graphs/doc-generator-subgraph.md) | Markdown doc workers, paired diagrams, doc reduction |
+| 7 | [persistence/checkpointer-postgres-alembic.md](persistence/checkpointer-postgres-alembic.md) | external Postgres checkpointer and Alembic-managed app tables |
+| 8 | [persistence/session-data-flow.md](persistence/session-data-flow.md) | complete run/resume/session save and read flow |
+| 9 | [current/streaming.md](current/streaming.md) | live SSE progress streaming contract and implementation |
+| 10 | [architecture/plan.md](architecture/plan.md) | target / roadmap; not guaranteed to match live code |
 
 **Deep dives (optional):**
 
 - [current/how-the-swarm-graph-works.md](current/how-the-swarm-graph-works.md) - older end-to-end graph explanation with broad context
+- [flows/subgraph-state-transfer.md](flows/subgraph-state-transfer.md) - deeper historical explanation of subgraph output transfer
 - [flows/state-merge-and-artifacts.md](flows/state-merge-and-artifacts.md) - critical reducer/reset details for artifact correctness
 - [flows/swarm-graph-overview.md](flows/swarm-graph-overview.md) - node-by-node topology, `Send` fan-out, module map
 - [flows/phase-7-flow.md](flows/phase-7-flow.md) — diagram workers, Mermaid lint loop

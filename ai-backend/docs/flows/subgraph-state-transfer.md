@@ -6,6 +6,8 @@ This document explains one specific question:
 
 > When `supervisor_graph` runs `architect_graph` or `doc_generator_graph`, how do the subgraph outputs end up in `GlobalSwarmState`?
 
+For the shorter current-runtime reference, read [`../graphs/subgraph-state-transfer.md`](../graphs/subgraph-state-transfer.md). This file keeps the deeper historical explanation and proof points.
+
 If you want the shorter answer first:
 
 - The parent graph mounts each compiled subgraph as a node.

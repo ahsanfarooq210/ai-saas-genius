@@ -20,6 +20,7 @@ Updated the main docs index so new readers have a clear path through runtime beh
 | File | Purpose |
 |------|---------|
 | `docs/graphs/overview.md` | how parent graph, subgraphs, service, API, checkpoints, and app tables work together |
+| `docs/graphs/subgraph-state-transfer.md` | how subgraph outputs merge back into `GlobalSwarmState` |
 | `docs/graphs/supervisor-graph.md` | parent graph loop, deterministic routing, reviewers, and iteration cap |
 | `docs/graphs/architect-subgraph.md` | architecture drafting, complexity scoring, diagram fan-out/fan-in, artifacts |
 | `docs/graphs/doc-generator-subgraph.md` | doc worker fan-out/fan-in, paired diagrams, doc artifacts |
@@ -34,4 +35,3 @@ Updated the main docs index so new readers have a clear path through runtime beh
 ## Preserved docs
 
 The existing `current/`, `flows/`, `architecture/`, `learning/`, and `changes/` documents were kept. They now act as deeper references and historical records instead of the first reading path.
-

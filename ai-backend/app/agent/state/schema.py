@@ -16,8 +16,13 @@ class GlobalSwarmState(TypedDict):
     diagram_plan: list[str]  # ["overview", "component-api-gateway", "auth-flow", ...]
     doc_plan: list[str]  # ["overview.md", "api-gateway.md", "auth-service.md", ...]
     deep_dive_notes: str  # empty until deep_dive_node runs
+    # Parent artifact lists must stay plain lists. Completed subgraphs should
+    # replace these values on reruns; using operator.add here would duplicate
+    # old artifacts after reviewer-driven architect/doc regeneration.
     generated_diagrams: list["DiagramEntry"]
     thread_id: str  # checkpoint thread; used for artifact paths
+    # Same rule as generated_diagrams: parent state receives the final reduced
+    # doc list from the subgraph, not every parallel worker append directly.
     generated_docs: list["DocEntry"]
     docs_complete: bool  # set True when doc sub-graph finishes (Phase 9 supervisor gate)
     iteration_count: int  # supervisor increments every lap; pass 6 forces END when MAX_ITERATIONS = 5
@@ -51,6 +56,8 @@ class ArchitectGraphState(TypedDict):
     diagram_plan: list[str]
     doc_plan: list[str]
     deep_dive_notes: str
+    # Subgraph-local reducer: parallel Send workers each return one diagram.
+    # operator.add is required here so worker outputs combine before fan-in.
     generated_diagrams: Annotated[list["DiagramEntry"], operator.add]
     thread_id: str
     generated_docs: list["DocEntry"]
@@ -103,6 +110,8 @@ class DocGraphState(TypedDict):
     deep_dive_notes: str
     generated_diagrams: list[DiagramEntry]
     thread_id: str
+    # Subgraph-local reducer: parallel Send workers each return one doc.
+    # Keep this reducer local to the doc subgraph; parent state stays replace-only.
     generated_docs: Annotated[list["DocEntry"], operator.add]
     docs_complete: bool
     iteration_count: int

@@ -11,6 +11,10 @@ def reduce_docs_node(state: DocGraphState) -> dict[str, Any]:
     """
     Runs after ALL parallel document_generator_node workers complete.
     Sets docs_complete — explicit signal for Phase 9 supervisor routing.
+
+    The doc subgraph uses operator.add only while workers are running in
+    parallel. At fan-in, Overwrite turns those worker appends into one final
+    replacement list for the parent graph.
     """
     all_docs = state.get("generated_docs") or []
 

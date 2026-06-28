@@ -87,6 +87,8 @@ The parent artifact fields are plain lists. The subgraphs use reducer-enabled lo
 
 The reduce nodes return LangGraph `Overwrite(...)` values so the parent receives one final list instead of duplicate accumulated worker output.
 
+For the complete transfer path from subgraph outputs to parent state, read [subgraph-state-transfer.md](subgraph-state-transfer.md).
+
 ## Rerun behavior
 
 Reviewer nodes can write `STATUS: REJECTED` inside `scalability_feedback` or `security_feedback`. The supervisor treats any feedback containing `REJECTED` as a signal to route back to `architect_graph`.
@@ -129,4 +131,3 @@ Read more:
 | `GET /api/v1/swarm/sessions/{thread_id}` | app-table result projection from `sessions`, `session_artifacts`, and `debate_logs` |
 
 Use `/state/{thread_id}` when you want checkpoint-shaped runtime state. Use `/sessions/{thread_id}` when you want the durable app result view after completion.
-
