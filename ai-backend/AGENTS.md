@@ -20,7 +20,7 @@ The codebase contains both runnable implementation and forward-looking architect
 
 ## Runtime And Configuration
 
-Primary config lives in [app/core/config.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/core/config.py).
+Primary config lives in [app/core/config.py](app/core/config.py).
 
 Important settings:
 
@@ -29,33 +29,37 @@ Important settings:
 - `OPENCODE_BASE_URL`
 - `OPENCODE_MODEL`
 - `OPENCODE_TEMPERATURE`
+- `CLOUDINARY_*` settings for generated Mermaid/Markdown artifact storage
+- `LANGGRAPH_POSTGRES_SSLMODE` for LangGraph Postgres checkpointer SSL behavior
 - JWT settings for scaffolded auth code
 
-LLM access is centralized in [app/core/llm.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/core/llm.py). Reuse that entry point instead of instantiating ad hoc clients.
+LLM access is centralized in [app/core/llm.py](app/core/llm.py). Reuse that entry point instead of instantiating ad hoc clients.
 
 ## Repository Map
 
 ### App Shell
 
-- [app/main.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/main.py): FastAPI app, lifespan, service registration
-- [app/api/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/api): HTTP dependency wiring and route registration
-- [app/services/swarm_graph_service.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/services/swarm_graph_service.py): graph invocation boundary
+- [app/main.py](app/main.py): FastAPI app, lifespan, Postgres checkpointer setup, artifact-store setup, service registration
+- [app/api/](app/api): HTTP dependency wiring and route registration
+- [app/services/swarm_graph_service.py](app/services/swarm_graph_service.py): graph invocation, streaming, checkpoint reads, and app-table result persistence
 
 ### Agent Domain
 
-- [app/agent/run.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/run.py): graph entry and thread config
-- [app/agent/graphs/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/graphs): graph topology only
-- [app/agent/state/schema.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/state/schema.py): TypedDict state definitions
-- [app/agent/subagents/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/subagents): node implementations, prompts, structured schemas
-- [app/agent/tools/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/tools): non-LLM helpers such as Mermaid linting
-- [docs/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/docs): architecture plans, current-state docs, and learning docs
+- [app/agent/run.py](app/agent/run.py): thread config and checkpoint payload shaping
+- [app/agent/streaming.py](app/agent/streaming.py): LangGraph stream event normalization and sanitization
+- [app/agent/graphs/](app/agent/graphs): graph topology only
+- [app/agent/state/schema.py](app/agent/state/schema.py): TypedDict state definitions
+- [app/agent/subagents/](app/agent/subagents): node implementations, prompts, structured schemas
+- [app/agent/tools/](app/agent/tools): non-LLM helpers such as Mermaid linting
+- [app/agent/storage/](app/agent/storage): artifact-store abstraction and Cloudinary-backed file storage
+- [docs/](docs): organized runtime, graph, persistence, flow, architecture, learning, and change docs
 
 ### Shared Infra
 
-- [app/core/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/core): settings, security, LLM client
-- [app/db/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/db): SQLAlchemy base and session management
-- [app/models/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/models): ORM models
-- [app/schemas/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/schemas): API request/response models
+- [app/core/](app/core): settings, security, LLM client
+- [app/db/](app/db): SQLAlchemy base/session management, Alembic filters, startup migration checks, LangGraph checkpointer setup
+- [app/models/](app/models): ORM models
+- [app/schemas/](app/schemas): API request/response models
 
 ## How To Find Live Behavior
 
@@ -63,13 +67,14 @@ Do not treat `AGENTS.md` as the source of truth for current routes, graph topolo
 
 Inspect these files first:
 
-- [app/api/v1/router.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/api/v1/router.py): which endpoint modules are actually registered
-- [app/api/v1/endpoints/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/api/v1/endpoints): live HTTP handlers
-- [app/main.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/main.py): app startup and service registration
-- [app/services/swarm_graph_service.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/services/swarm_graph_service.py): graph invocation boundary and initial state
-- [app/agent/run.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/run.py): graph entry and thread config
-- [app/agent/graphs/](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/graphs): actual graph wiring
-- [app/agent/state/schema.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/state/schema.py): actual shared state contract
+- [app/api/v1/router.py](app/api/v1/router.py): which endpoint modules are actually registered
+- [app/api/v1/endpoints/](app/api/v1/endpoints): live HTTP handlers
+- [app/main.py](app/main.py): app startup and service registration
+- [app/services/swarm_graph_service.py](app/services/swarm_graph_service.py): graph invocation boundary, initial state, streaming, and app-table writes
+- [app/agent/run.py](app/agent/run.py): thread config and checkpoint payload shaping
+- [app/agent/graphs/](app/agent/graphs): actual graph wiring
+- [app/agent/state/schema.py](app/agent/state/schema.py): actual shared state contract
+- [docs/README.md](docs/README.md): current documentation reading order
 
 ## Source Of Truth Rules
 
@@ -113,9 +118,9 @@ The README still describes scaffolded auth endpoints that are not wired in the c
 
 Existing examples:
 
-- structured output: [app/agent/subagents/lead_architect.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/subagents/lead_architect.py)
-- output normalization: [app/agent/subagents/_schema.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/subagents/_schema.py)
-- text extraction helper: [app/agent/subagents/llm_reply.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/subagents/llm_reply.py)
+- structured output: [app/agent/subagents/lead_architect.py](app/agent/subagents/lead_architect.py)
+- output normalization: [app/agent/subagents/_schema.py](app/agent/subagents/_schema.py)
+- text extraction helper: [app/agent/subagents/llm_reply.py](app/agent/subagents/llm_reply.py)
 
 ### API Layer Style
 
@@ -126,9 +131,10 @@ Existing examples:
 
 ### Database Style
 
-- Keep SQLAlchemy setup centralized in [app/db/session.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/db/session.py)
-- Import ORM models through [app/db/base.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/db/base.py) for Alembic discovery
+- Keep SQLAlchemy setup centralized in [app/db/session.py](app/db/session.py)
+- Import ORM models through [app/db/base.py](app/db/base.py) for Alembic discovery
 - Do not add database access inside graph nodes unless that is a conscious architecture change
+- Keep LangGraph checkpoint tables owned by `AsyncPostgresSaver.setup()`. Alembic owns app tables only.
 
 ## Project-Specific Conventions
 
@@ -168,7 +174,7 @@ Do not create god-modules that mix multiple agent roles.
 
 ### 4. Use Deterministic Routing
 
-Routing functions must read state and return next-step names. They should not call the LLM. The comment in [app/agent/router/supervisor_router.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/app/agent/router/supervisor_router.py) reflects the intended rule even though that router is not wired yet.
+Routing functions must read state and return next-step names. They should not call the LLM. The live deterministic router is [app/agent/subagents/supervisor_router.py](app/agent/subagents/supervisor_router.py).
 
 ### 5. Add State Fields Carefully
 
@@ -177,7 +183,8 @@ When adding a state field, update all places that must agree:
 1. `GlobalSwarmState`
 2. empty initial state in `SwarmGraphService`
 3. response schemas if the API returns it
-4. tests that assert state shape or reducer behavior
+4. app-table persistence and Alembic migrations if `/sessions/{thread_id}` should return it
+5. tests that assert state shape, reducer behavior, or session response shape
 
 ### 6. Prefer Narrow, Explicit Plans
 
@@ -206,9 +213,17 @@ If you rename either, do it as a coordinated change with import updates and veri
 
 Run targeted tests for the code you touch. Use `pytest`.
 
-Current test coverage is light and mostly focused on reducer behavior:
+Useful focused suites:
 
-- [tests/test_reducer_phase6.py](/Users/ahsanfarooq/Desktop/Projects/GitHub/ai-saas-genius/ai-backend/tests/test_reducer_phase6.py)
+- [tests/test_reducer_phase6.py](tests/test_reducer_phase6.py)
+- [tests/test_reducer_phase8.py](tests/test_reducer_phase8.py)
+- [tests/test_subgraph_artifact_accumulation.py](tests/test_subgraph_artifact_accumulation.py)
+- [tests/test_supervisor_routing_phase9.py](tests/test_supervisor_routing_phase9.py)
+- [tests/test_swarm_graph_service_phase11.py](tests/test_swarm_graph_service_phase11.py)
+- [tests/test_swarm_graph_service_streaming.py](tests/test_swarm_graph_service_streaming.py)
+- [tests/test_swarm_streaming_events.py](tests/test_swarm_streaming_events.py)
+- [tests/test_checkpoint_payload.py](tests/test_checkpoint_payload.py)
+- [tests/test_alembic_phase11.py](tests/test_alembic_phase11.py)
 
 When adding graph fan-out, reducers, or state fields, add tests around:
 
@@ -216,6 +231,7 @@ When adding graph fan-out, reducers, or state fields, add tests around:
 - graph output shape
 - routing decisions
 - schema validation for LLM outputs
+- session persistence and response shape when app-table result data changes
 
 ## How To Extend The System
 
@@ -233,12 +249,13 @@ When implementing `Send`-based fan-out:
 
 - give workers isolated worker-state types
 - annotate reducer fields with `operator.add` on **subgraph** state (`ArchitectGraphState`, `DocGraphState`), not on parent `GlobalSwarmState` artifact fields
-- keep parent `GlobalSwarmState.generated_diagrams`, `generated_docs`, and `debate_logs` as plain lists so compiled subgraph outputs replace instead of append
+- keep parent `GlobalSwarmState.generated_diagrams` and `generated_docs` as plain lists so completed subgraph outputs replace previous artifacts instead of appending duplicates
+- keep `debate_logs` plain unless there is a deliberate graph-wide reducer design; reviewer nodes currently write normal state updates
 - make each worker return only its artifact payload (one-item list slice)
 - use `prepare_*_artifacts_node` at subgraph START when a generation phase may rerun
 - test subgraph boundary merge with `tests/test_subgraph_artifact_accumulation.py` and reducer hints in `tests/test_reducer_phase6.py` / `test_reducer_phase8.py`
 
-See `docs/flows/state-merge-and-artifacts.md`.
+See [docs/graphs/subgraph-state-transfer.md](docs/graphs/subgraph-state-transfer.md) and [docs/flows/state-merge-and-artifacts.md](docs/flows/state-merge-and-artifacts.md).
 
 ### Add New API Endpoints
 
@@ -251,11 +268,9 @@ See `docs/flows/state-merge-and-artifacts.md`.
 
 These areas exist in code or docs but are not complete runtime features today:
 
-- supervisor loop orchestration
-- doc generator subgraph
 - deep-dive and summarize execution in the active graph
-- persistent production checkpointer beyond current in-memory setup
 - complete auth API despite README references
+- human-feedback interrupts
 
 Do not build on assumptions that these are already functional.
 
@@ -267,7 +282,8 @@ Before changing code:
 2. inspect the graph, router, or service file that actually wires the behavior
 3. inspect the relevant state schema and API schema
 4. check whether startup or dependency wiring also needs updates
-5. run the smallest meaningful test or verification command afterward
+5. update `docs/` when graph, persistence, streaming, or API behavior changes
+6. run the smallest meaningful test or verification command afterward
 
 ## Safe Defaults For Future Agents
 
@@ -276,5 +292,6 @@ Before changing code:
 - Keep the graph compile-once model
 - Keep route handlers thin
 - Keep prompts out of graph topology files
+- Use [docs/README.md](docs/README.md) as the current docs reading order
 - Use structured output for machine-consumed LLM data
 - Treat roadmap docs as design input, not proof of implementation
