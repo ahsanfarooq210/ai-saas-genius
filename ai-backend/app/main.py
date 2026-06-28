@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.db.checkpointer import postgres_checkpointer
 from app.db.migration_check import validate_required_app_tables
 from app.db.session import engine
+from app.middleware.auth import JWTAuthMiddleware
 from app.services.swarm_graph_service import SwarmGraphService
 
 
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(JWTAuthMiddleware)
 app.include_router(api_router, prefix="/api/v1")
 
 

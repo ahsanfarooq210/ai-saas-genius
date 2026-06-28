@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import decode_token
 from app.db.session import get_db
+from app.middleware.auth import get_access_token_from_request
 from app.models.user import User
 from app.services.swarm_graph_service import SwarmGraphService
 
@@ -27,22 +28,30 @@ def get_current_user(
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
     )
 
-    access_token = token or request.cookies.get("accessToken")
-    if not access_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
+    user_id = getattr(request.state, "user_id", None)
+    if user_id is None:
+        access_token = token or get_access_token_from_request(request)
+        if not access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
-    try:
-        payload = decode_token(access_token, token_type="access")
-        user_id = int(payload.get("sub"))
-    except (TypeError, ValueError):
-        raise credentials_exception
+        try:
+            payload = decode_token(access_token, token_type="access")
+            user_id = int(payload.get("sub"))
+        except (TypeError, ValueError):
+            raise credentials_exception
 
-    user = db.query(User).filter(User.id == user_id).first()
+    user = (
+        db.query(User)
+        .filter(User.id == user_id, User.is_active.is_(True))
+        .first()
+    )
     if user is None:
         raise credentials_exception
 

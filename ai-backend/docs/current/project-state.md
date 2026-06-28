@@ -18,7 +18,9 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 |------|------|
 | `app/main.py` | App lifespan, Postgres checkpointer, service registration |
 | `app/api/v1/router.py` | Route registration |
+| `app/api/v1/endpoints/auth.py` | JWT signup/login/signin/refresh/me handlers |
 | `app/api/v1/endpoints/swarm.py` | Swarm HTTP handlers |
+| `app/middleware/auth.py` | JWT route middleware for protected API paths |
 | `app/services/swarm_graph_service.py` | Async graph invoke/resume, streaming progress, checkpoint payload, app metadata writes |
 | `app/agent/run.py` | Checkpoint payload shaping |
 | `app/agent/streaming.py` | LangGraph stream event normalization and sanitization |
@@ -28,6 +30,8 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 ---
 
 ## Runtime flow
+
+All `/api/v1/swarm/*` routes require a bearer access token issued by `/api/v1/auth/login`, `/api/v1/auth/signin`, or `/api/v1/auth/signup`.
 
 1. `POST /api/v1/swarm/run` or `resume` in `swarm.py`
 2. `SwarmGraphService` writes a `sessions` row as `running`
@@ -117,6 +121,11 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 
 | Method | Path |
 |--------|------|
+| `POST` | `/api/v1/auth/signup` |
+| `POST` | `/api/v1/auth/login` |
+| `POST` | `/api/v1/auth/signin` |
+| `POST` | `/api/v1/auth/refresh` |
+| `GET` | `/api/v1/auth/me` |
 | `POST` | `/api/v1/swarm/run` |
 | `POST` | `/api/v1/swarm/run/stream` |
 | `POST` | `/api/v1/swarm/resume` |
@@ -128,6 +137,8 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 | `GET` | `/health` |
 
 Graph introspection is backed by [`app/agent/graph_mermaid.py`](../../app/agent/graph_mermaid.py) (`supervisor`, `architect`, `doc_generator`).
+
+`/api/v1/auth/*` endpoints are public except `/api/v1/auth/me`, which uses the same access-token dependency as protected routes. The JWT middleware protects non-auth `/api/v1/*` paths and supports `Authorization: Bearer <token>` plus the existing `accessToken` cookie fallback.
 
 `/api/v1/swarm/sessions/{thread_id}` is the app-table result view. It returns the `sessions` row plus persisted final graph fields (`architecture_json`, `component_list`, Mermaid summary, plans, reviewer feedback, supervisor state), final artifact rows, and mirrored debate logs. `/api/v1/swarm/state/{thread_id}` remains the checkpoint-backed state view.
 
@@ -156,6 +167,7 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 - Subgraph artifact reset and parent plain-list merge (2026-05-30)
 - SSE progress streaming for run/resume with sanitized graph events
 - Session-table final graph-state projection for durable result reads
+- JWT signup/login/signin/refresh/me endpoints and protected `/api/v1/swarm/*` routes
 
 **On disk but not in active graph:**
 
@@ -164,7 +176,6 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 
 **Roadmap / not production-complete:**
 
-- Full auth API (README may mention scaffolded auth not wired in router)
 - Human-feedback interrupts
 
 ---
