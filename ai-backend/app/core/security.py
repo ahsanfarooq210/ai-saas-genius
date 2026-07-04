@@ -1,3 +1,4 @@
+import secrets
 from datetime import UTC, datetime, timedelta
 
 from jose import JWTError, jwt
@@ -44,3 +45,7 @@ def decode_token(token: str, token_type: str = "access") -> dict:
         raise ValueError("Invalid token type")
 
     return payload
+
+
+def generate_csrf_token() -> str:
+    return secrets.token_urlsafe(32)

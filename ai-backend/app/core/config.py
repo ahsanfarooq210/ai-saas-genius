@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 10080
+    # Comma-separated list of exact frontend origins allowed to make credentialed
+    # (cookie-bearing) cross-origin requests. No wildcard is permitted alongside
+    # allow_credentials=True (browsers reject it), so this must be explicit.
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:5173"
+    # Auth cookies require Secure in production (HTTPS-only). Local HTTP dev
+    # needs this off, since browsers silently drop Secure cookies over plain HTTP.
+    COOKIE_SECURE: bool = True
     GOOGLE_API_KEY: Optional[str] = None
     # OpenCode Go (OpenAI-compatible); used by `app.core.llm.get_chat_llm`.
     OPENCODE_API_KEY: Optional[str] = None
@@ -69,6 +76,9 @@ class Settings(BaseSettings):
             u,
             sslmode_override=self.LANGGRAPH_POSTGRES_SSLMODE,
         )
+
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
 
     def langfuse_enabled(self) -> bool:
         return bool(

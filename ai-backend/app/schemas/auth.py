@@ -13,13 +13,20 @@ class SignInRequest(BaseModel):
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    # Optional because cookie-based clients can't read the httpOnly
+    # refreshToken cookie to put it in the body; the endpoint falls back to
+    # the cookie when this is omitted.
+    refresh_token: str | None = None
 
 
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class LogoutResponse(BaseModel):
+    detail: str
 
 
 class UserResponse(BaseModel):

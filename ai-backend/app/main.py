@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.storage.file_store import artifact_store
 from app.agent.graphs.supervisor_graph import build_supervisor_graph
@@ -28,6 +29,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+# Added first so it's outermost: CORS must handle preflight OPTIONS requests
+# before JWTAuthMiddleware ever sees them. allow_credentials=True requires an
+# explicit origin list (no "*") for the browser to accept cross-origin cookies.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origins_list(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+)
 app.add_middleware(JWTAuthMiddleware)
 app.include_router(api_router, prefix="/api/v1")
 
