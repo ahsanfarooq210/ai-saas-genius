@@ -5,26 +5,66 @@ This document describes the live HTTP API exposed by the files in
 typed API layer.
 
 Live code wins over this guide. The registered v1 routes are defined in
-`app/api/v1/router.py`; today it only includes `app/api/v1/endpoints/swarm.py`.
-The auth schemas in `app/schemas/auth.py` are scaffolded, but auth endpoints are
-not currently registered.
+`app/api/v1/router.py`; today it includes `app/api/v1/endpoints/auth.py` and
+`app/api/v1/endpoints/swarm.py`.
 
 ## Base paths
 
 | Scope | Base path | Source |
 |-------|-----------|--------|
 | Health check | `/health` | `app/main.py` |
+| Auth API | `/api/v1/auth` | `app/api/v1/endpoints/auth.py` |
 | Swarm API | `/api/v1/swarm` | `app/main.py` + `app/api/v1/router.py` |
 
 The frontend should treat `thread_id` as the stable client/session key for a
 swarm run. Use the same `thread_id` to stream progress, resume work, read
 checkpoint state, and read persisted session results.
 
+## Authentication model
+
+`JWTAuthMiddleware` protects `/api/v1/*` by default, with these public paths:
+
+- `/api/v1/auth`
+- `/health`
+- `/docs`
+- `/redoc`
+- `/openapi.json`
+
+Auth endpoints return tokens as JSON. They do not set cookies themselves.
+
+Use this header for protected calls:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+The backend also accepts an `accessToken` cookie if one is present, but the
+frontend should prefer the bearer header unless the frontend app intentionally
+manages cookie-based auth.
+
+Protected endpoints:
+
+- All `/api/v1/swarm/*` routes
+- `GET /api/v1/auth/me`
+
+Public endpoints:
+
+- `POST /api/v1/auth/signup`
+- `POST /api/v1/auth/signin`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `GET /health`
+
 ## Endpoint summary
 
 | Method | Path | Purpose | Returns |
 |--------|------|---------|---------|
 | `GET` | `/health` | Check that the backend app is alive | `{"status":"ok"}` |
+| `POST` | `/api/v1/auth/signup` | Register a user and issue tokens | Access and refresh tokens |
+| `POST` | `/api/v1/auth/signin` | Sign in with email and password | Access and refresh tokens |
+| `POST` | `/api/v1/auth/login` | Alias for signin | Access and refresh tokens |
+| `POST` | `/api/v1/auth/refresh` | Exchange a refresh token for new tokens | Access and refresh tokens |
+| `GET` | `/api/v1/auth/me` | Read the current authenticated user | User profile |
 | `POST` | `/api/v1/swarm/run` | Start a new blocking swarm run | Full final graph state |
 | `POST` | `/api/v1/swarm/run/stream` | Start a new streaming swarm run | SSE progress events only |
 | `POST` | `/api/v1/swarm/resume` | Resume an existing checkpoint and wait for final state | Full final graph state |
@@ -35,6 +75,45 @@ checkpoint state, and read persisted session results.
 | `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` | Render one graph topology as Mermaid source | Mermaid text |
 
 ## Common request models
+
+### Signup request
+
+Used by `POST /api/v1/auth/signup`.
+
+```ts
+type SignUpRequest = {
+  email: string;
+  password: string;
+  full_name?: string | null;
+};
+```
+
+Validation:
+
+- `email` must be a valid email address.
+- `password` must be 8 to 128 characters.
+- `full_name` is optional.
+
+### Signin request
+
+Used by `POST /api/v1/auth/signin` and `POST /api/v1/auth/login`.
+
+```ts
+type SignInRequest = {
+  email: string;
+  password: string;
+};
+```
+
+### Refresh request
+
+Used by `POST /api/v1/auth/refresh`.
+
+```ts
+type RefreshTokenRequest = {
+  refresh_token: string;
+};
+```
 
 ### Start run request
 
@@ -59,6 +138,154 @@ type SwarmResumeRequest = {
   thread_id: string;
 };
 ```
+
+## Auth responses
+
+Token response:
+
+```ts
+type TokenResponse = {
+  access_token: string;
+  refresh_token: string;
+  token_type: "bearer";
+};
+```
+
+Current user response:
+
+```ts
+type UserResponse = {
+  id: number;
+  email: string;
+  full_name: string | null;
+  is_active: boolean;
+};
+```
+
+## Signup
+
+```http
+POST /api/v1/auth/signup
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "ada@example.com",
+  "password": "valid-password",
+  "full_name": "Ada Lovelace"
+}
+```
+
+Purpose:
+
+- Creates a new active user.
+- Lowercases the email before storing it.
+- Returns access and refresh tokens immediately after signup.
+
+Success:
+
+- `201 Created`
+- Body: `TokenResponse`
+
+Errors:
+
+- `409` with `{"detail":"Email is already registered"}` when the email already
+  exists.
+- `422` for validation errors such as invalid email or too-short password.
+
+## Signin and login
+
+```http
+POST /api/v1/auth/signin
+Content-Type: application/json
+```
+
+`POST /api/v1/auth/login` is an alias with the same request and response
+contract.
+
+```json
+{
+  "email": "ada@example.com",
+  "password": "valid-password"
+}
+```
+
+Purpose:
+
+- Verifies email and password.
+- Rejects inactive users.
+- Returns access and refresh tokens.
+
+Success:
+
+- `200 OK`
+- Body: `TokenResponse`
+
+Errors:
+
+- `401` with `{"detail":"Could not validate credentials"}` for missing user or
+  bad password.
+- `403` with `{"detail":"Inactive user"}` for inactive users.
+- `422` for validation errors.
+
+## Refresh tokens
+
+```http
+POST /api/v1/auth/refresh
+Content-Type: application/json
+```
+
+```json
+{
+  "refresh_token": "<refresh_token>"
+}
+```
+
+Purpose:
+
+- Validates that the supplied token is a refresh token.
+- Verifies the user still exists and is active.
+- Issues a fresh access token and refresh token.
+
+Success:
+
+- `200 OK`
+- Body: `TokenResponse`
+
+Errors:
+
+- `401` with `{"detail":"Could not validate credentials"}` when the token is
+  invalid, expired, the wrong token type, or belongs to an inactive/missing user.
+- `422` for validation errors.
+
+Frontend behavior:
+
+- Use `access_token` for API calls.
+- Store `refresh_token` separately and only send it to this endpoint.
+- Do not send an access token to `/auth/refresh`; the backend requires a
+  refresh token type.
+
+## Current user
+
+```http
+GET /api/v1/auth/me
+Authorization: Bearer <access_token>
+```
+
+Purpose:
+
+- Returns the authenticated active user profile.
+- Useful for app bootstrapping and "am I signed in?" checks.
+
+Success:
+
+- `200 OK`
+- Body: `UserResponse`
+
+Errors:
+
+- `401` with `WWW-Authenticate: Bearer` when no valid access token is supplied.
 
 ## Artifact contract
 
@@ -91,6 +318,7 @@ Frontend behavior:
 ```http
 POST /api/v1/swarm/run
 Content-Type: application/json
+Authorization: Bearer <access_token>
 ```
 
 ```json
@@ -165,6 +393,7 @@ type DebateLog = {
 POST /api/v1/swarm/run/stream
 Content-Type: application/json
 Accept: text/event-stream
+Authorization: Bearer <access_token>
 ```
 
 ```json
@@ -266,6 +495,7 @@ Frontend behavior:
 ```http
 POST /api/v1/swarm/resume
 Content-Type: application/json
+Authorization: Bearer <access_token>
 ```
 
 ```json
@@ -291,6 +521,7 @@ wait for completion. If the graph has no checkpoint for the supplied
 POST /api/v1/swarm/resume/stream
 Content-Type: application/json
 Accept: text/event-stream
+Authorization: Bearer <access_token>
 ```
 
 ```json
@@ -316,6 +547,7 @@ GET /api/v1/swarm/sessions/{thread_id}
 
 ```http
 GET /api/v1/swarm/state/{thread_id}
+Authorization: Bearer <access_token>
 ```
 
 Purpose:
@@ -382,6 +614,7 @@ Notes:
 
 ```http
 GET /api/v1/swarm/sessions/{thread_id}
+Authorization: Bearer <access_token>
 ```
 
 Purpose:
@@ -438,6 +671,7 @@ Frontend behavior:
 
 ```http
 GET /api/v1/swarm/graphs
+Authorization: Bearer <access_token>
 ```
 
 Purpose:
@@ -472,6 +706,7 @@ Current graph IDs:
 
 ```http
 GET /api/v1/swarm/graphs/{graph_id}/mermaid?xray=false
+Authorization: Bearer <access_token>
 ```
 
 Purpose:
@@ -505,6 +740,11 @@ Frontend behavior:
 Minimum useful client functions:
 
 ```ts
+async function signUp(input: SignUpRequest): Promise<TokenResponse>;
+async function signIn(input: SignInRequest): Promise<TokenResponse>;
+async function logIn(input: SignInRequest): Promise<TokenResponse>;
+async function refreshAuth(input: RefreshTokenRequest): Promise<TokenResponse>;
+async function getCurrentUser(): Promise<UserResponse>;
 async function startSwarmRun(input: SwarmRunRequest): Promise<SwarmRunResponse>;
 async function resumeSwarmRun(input: SwarmResumeRequest): Promise<SwarmRunResponse>;
 async function getSwarmState(threadId: string): Promise<SwarmCheckpointResponse>;
@@ -532,12 +772,14 @@ type SwarmStreamHandlers = {
 
 Implementation notes:
 
+- Attach `Authorization: Bearer <access_token>` to every protected request.
+- On `401`, refresh with `/api/v1/auth/refresh` if a refresh token is available,
+  then retry the original request once.
 - Native `EventSource` cannot send a JSON `POST` body. Use `fetch` streaming,
   `@microsoft/fetch-event-source`, or another SSE client that supports POST
-  bodies.
+  bodies and custom auth headers.
 - The stream response headers include `Cache-Control: no-cache` and
   `X-Accel-Buffering: no`.
 - Treat non-2xx JSON responses as API errors. For stream endpoints, also handle
   `event: error`.
-- The backend does not require auth for the registered swarm routes today.
-
+- The backend requires auth for all registered swarm routes today.
