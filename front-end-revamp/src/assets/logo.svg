@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 160" fill="none">
+  <defs>
+    <linearGradient id="logoTop" x1="37" y1="67" x2="103" y2="117" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE8DE"/>
+      <stop offset="0.52" stop-color="#FFAA8C"/>
+      <stop offset="1" stop-color="#FF7E5F"/>
+    </linearGradient>
+    <linearGradient id="logoLeft" x1="16" y1="81" x2="72" y2="133" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C95F53"/>
+      <stop offset="1" stop-color="#713B40"/>
+    </linearGradient>
+    <linearGradient id="logoRight" x1="72" y1="109" x2="128" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A94740"/>
+      <stop offset="1" stop-color="#EF765C"/>
+    </linearGradient>
+    <linearGradient id="logoGlass" x1="43" y1="29" x2="101" y2="73" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9F5"/>
+      <stop offset="0.55" stop-color="#FFD5C3"/>
+      <stop offset="1" stop-color="#FEB47B"/>
+    </linearGradient>
+    <linearGradient id="logoSheen" x1="31" y1="26" x2="110" y2="66" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9F5" stop-opacity="0.48"/>
+      <stop offset="0.48" stop-color="#FFF9F5" stop-opacity="0"/>
+      <stop offset="0.74" stop-color="#FFF9F5" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#FFF9F5" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="logoGlow" cx="0" cy="0" r="1" gradientTransform="translate(72 50) rotate(90) scale(42)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB49C" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#FF7E5F" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="logoShadow" x="-35%" y="-35%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3.5" flood-color="#3D3436" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+
+  <g transform="translate(8 6)" filter="url(#logoShadow)">
+    <circle cx="72" cy="50" r="42" fill="url(#logoGlow)"/>
+    <path d="M16 83L72 112V129L16 100V83Z" fill="url(#logoLeft)"/>
+    <path d="M72 112L128 83V100L72 129V112Z" fill="url(#logoRight)"/>
+    <path d="M16 83L72 54L128 83L72 112L16 83Z" fill="url(#logoTop)"/>
+    <path d="M30 44L72 66L114 44V58L72 80L30 58V44Z" fill="#B95049" fill-opacity="0.72"/>
+    <path d="M30 44L72 22L114 44L72 66L30 44Z" fill="url(#logoGlass)" stroke="#FFE8DE" stroke-width="1.5"/>
+    <path d="M30 44L72 22L114 44L72 66L30 44Z" fill="url(#logoSheen)" opacity="0.72"/>
+    <path d="M58 44L72 37L86 44L72 51L58 44Z" fill="#FF7E5F"/>
+    <circle cx="72" cy="44" r="5" fill="#FFF9F5" fill-opacity="0.3"/>
+    <circle cx="72" cy="44" r="3" fill="#FFF9F5"/>
+  </g>
+
+  <text x="170" y="103" fill="#3D3436" font-family="Montserrat, Arial, sans-serif" font-size="68" font-weight="700" letter-spacing="8">ORBYT</text>
+</svg>

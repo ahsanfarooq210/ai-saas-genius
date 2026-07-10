@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import {
+  ArrowRight,
   Check,
   Envelope,
   Eye,
@@ -12,6 +13,7 @@ import {
 } from "@phosphor-icons/react"
 
 import { AuthLayout } from "@/screens/auth/AuthLayout"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -86,24 +88,40 @@ export function SignupScreen() {
 
   return (
     <AuthLayout>
-      <Card className="shadow-lg shadow-primary/5">
-        <CardHeader className="items-center gap-3 text-center">
-          <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <UserCircle className="size-6" weight="duotone" />
+      <Card className="border-border/80 bg-card/95 py-0 shadow-xl shadow-primary/10 backdrop-blur-sm">
+        <CardHeader className="items-center gap-4 border-b border-border/70 px-6 py-7 text-center sm:px-8">
+          <Badge
+            variant="secondary"
+            className="rounded-full px-3 text-[10px] tracking-[0.16em] uppercase"
+          >
+            AI architecture workspace
+          </Badge>
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
+            <UserCircle className="size-7" weight="duotone" />
           </div>
-          <CardTitle className="text-2xl font-semibold tracking-tight">
-            Create an account
-          </CardTitle>
-          <CardDescription>
-            Sign up to start building with the swarm.
-          </CardDescription>
+          <div className="space-y-1.5">
+            <CardTitle className="text-3xl font-semibold tracking-tight">
+              Create your workspace
+            </CardTitle>
+            <CardDescription className="text-sm">
+              Turn system ideas into review-ready architecture plans.
+            </CardDescription>
+          </div>
         </CardHeader>
         <form onSubmit={handleSubmit}>
-          <CardContent>
-            <FieldGroup>
+          <CardContent className="px-6 py-7 sm:px-8">
+            <FieldGroup className="gap-5">
               <Field>
-                <FieldLabel htmlFor="signup-name">Full name</FieldLabel>
-                <InputGroup>
+                <div className="flex items-center justify-between">
+                  <FieldLabel
+                    htmlFor="signup-name"
+                    className="text-sm font-medium"
+                  >
+                    Full name
+                  </FieldLabel>
+                  <span className="text-xs text-muted-foreground">Optional</span>
+                </div>
+                <InputGroup className="h-11 rounded-lg bg-background/60 transition-shadow focus-within:shadow-sm">
                   <InputGroupAddon>
                     <UserCircle />
                   </InputGroupAddon>
@@ -117,11 +135,15 @@ export function SignupScreen() {
                     disabled={isSubmitting}
                   />
                 </InputGroup>
-                <FieldDescription>Optional.</FieldDescription>
               </Field>
               <Field data-invalid={!!error}>
-                <FieldLabel htmlFor="signup-email">Email</FieldLabel>
-                <InputGroup>
+                <FieldLabel
+                  htmlFor="signup-email"
+                  className="text-sm font-medium"
+                >
+                  Email address
+                </FieldLabel>
+                <InputGroup className="h-11 rounded-lg bg-background/60 transition-shadow focus-within:shadow-sm">
                   <InputGroupAddon>
                     <Envelope />
                   </InputGroupAddon>
@@ -138,8 +160,13 @@ export function SignupScreen() {
                 </InputGroup>
               </Field>
               <Field data-invalid={!!error}>
-                <FieldLabel htmlFor="signup-password">Password</FieldLabel>
-                <InputGroup>
+                <FieldLabel
+                  htmlFor="signup-password"
+                  className="text-sm font-medium"
+                >
+                  Password
+                </FieldLabel>
+                <InputGroup className="h-11 rounded-lg bg-background/60 transition-shadow focus-within:shadow-sm">
                   <InputGroupAddon>
                     <LockKey />
                   </InputGroupAddon>
@@ -180,10 +207,13 @@ export function SignupScreen() {
                 </FieldDescription>
               </Field>
               <Field data-invalid={!!error}>
-                <FieldLabel htmlFor="signup-confirm-password">
+                <FieldLabel
+                  htmlFor="signup-confirm-password"
+                  className="text-sm font-medium"
+                >
                   Confirm password
                 </FieldLabel>
-                <InputGroup>
+                <InputGroup className="h-11 rounded-lg bg-background/60 transition-shadow focus-within:shadow-sm">
                   <InputGroupAddon>
                     <LockKey />
                   </InputGroupAddon>
@@ -216,18 +246,26 @@ export function SignupScreen() {
               {error && <FieldError>{error}</FieldError>}
             </FieldGroup>
           </CardContent>
-          <CardFooter className="mt-5 flex flex-col gap-3">
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+          <CardFooter className="flex flex-col gap-5 border-t border-border/70 bg-muted/30 px-6 py-6 sm:px-8">
+            <Button
+              type="submit"
+              size="lg"
+              className="h-11 w-full rounded-lg text-sm shadow-md shadow-primary/20"
+              disabled={isSubmitting}
+            >
               {isSubmitting && <Spinner />}
               Sign up
+              {!isSubmitting && (
+                <ArrowRight className="size-4" weight="bold" />
+              )}
             </Button>
             <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
               <ShieldCheck className="size-3.5" />
-              Secured with encrypted sessions
+              Keep design work in one secure workspace
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="rounded-lg border border-border/70 bg-background/60 px-4 py-3 text-center text-xs text-muted-foreground">
               Already have an account?{" "}
-              <Link to="/login" className="text-primary underline-offset-4 hover:underline">
+              <Link to="/login" className="font-semibold text-primary underline-offset-4 hover:underline">
                 Log in
               </Link>
             </p>
