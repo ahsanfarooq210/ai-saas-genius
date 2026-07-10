@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.agent.graph_mermaid import (
     UnknownSwarmGraphError,
@@ -14,6 +15,7 @@ from app.agent.graph_mermaid import (
 from app.agent.run import build_checkpoint_payload, swarm_config
 from app.agent.state.schema import GlobalSwarmState
 from app.agent.streaming import normalize_stream_chunk
+from app.core.langfuse import swarm_config_with_tracing, swarm_trace
 from app.models.swarm import SwarmDebateLog, SwarmSession, SwarmSessionArtifact
 
 logger = logging.getLogger(__name__)
@@ -55,20 +57,36 @@ class SwarmGraphService:
         *,
         db: Session | None = None,
     ) -> dict[str, Any]:
-        if db is not None:
-            self._mark_session_running(db, thread_id, task_requirement)
-        try:
-            result = await self._graph.ainvoke(
-                _empty_swarm_state(task_requirement, thread_id),
-                config=swarm_config(thread_id),
-            )
-        except Exception:
+        with swarm_trace(
+            "swarm.run",
+            thread_id,
+            task_requirement=task_requirement,
+        ) as trace:
             if db is not None:
-                self._mark_session_failed(db, thread_id)
-            raise
-        if db is not None:
-            self._mark_session_done(db, thread_id, result)
-        return result
+                await run_in_threadpool(
+                    self._mark_session_running,
+                    db,
+                    thread_id,
+                    task_requirement,
+                )
+            try:
+                result = await self._graph.ainvoke(
+                    _empty_swarm_state(task_requirement, thread_id),
+                    config=swarm_config_with_tracing(
+                        swarm_config(thread_id),
+                        thread_id,
+                        "swarm.run",
+                    ),
+                )
+            except Exception as exc:
+                trace.set_error(exc)
+                if db is not None:
+                    await run_in_threadpool(self._mark_session_failed, db, thread_id)
+                raise
+            if db is not None:
+                await run_in_threadpool(self._mark_session_done, db, thread_id, result)
+            trace.set_result(result)
+            return result
 
     async def resume(
         self,
@@ -76,15 +94,25 @@ class SwarmGraphService:
         *,
         db: Session | None = None,
     ) -> dict[str, Any]:
-        try:
-            result = await self._graph.ainvoke(None, config=swarm_config(thread_id))
-        except Exception:
+        with swarm_trace("swarm.resume", thread_id) as trace:
+            try:
+                result = await self._graph.ainvoke(
+                    None,
+                    config=swarm_config_with_tracing(
+                        swarm_config(thread_id),
+                        thread_id,
+                        "swarm.resume",
+                    ),
+                )
+            except Exception as exc:
+                trace.set_error(exc)
+                if db is not None:
+                    await run_in_threadpool(self._mark_session_failed, db, thread_id)
+                raise
             if db is not None:
-                self._mark_session_failed(db, thread_id)
-            raise
-        if db is not None:
-            self._mark_session_done(db, thread_id, result)
-        return result
+                await run_in_threadpool(self._mark_session_done, db, thread_id, result)
+            trace.set_result(result)
+            return result
 
     async def stream_run(
         self,
@@ -94,10 +122,17 @@ class SwarmGraphService:
         db: Session | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         if db is not None:
-            self._mark_session_running(db, thread_id, task_requirement)
+            await run_in_threadpool(
+                self._mark_session_running,
+                db,
+                thread_id,
+                task_requirement,
+            )
         async for event in self._stream_graph(
             _empty_swarm_state(task_requirement, thread_id),
             thread_id,
+            operation="swarm.run.stream",
+            task_requirement=task_requirement,
             db=db,
         ):
             yield event
@@ -109,8 +144,17 @@ class SwarmGraphService:
         db: Session | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         if db is not None:
-            self._mark_session_resume_running(db, thread_id)
-        async for event in self._stream_graph(None, thread_id, db=db):
+            await run_in_threadpool(
+                self._mark_session_resume_running,
+                db,
+                thread_id,
+            )
+        async for event in self._stream_graph(
+            None,
+            thread_id,
+            operation="swarm.resume.stream",
+            db=db,
+        ):
             yield event
 
     async def get_checkpoint(self, thread_id: str) -> dict[str, Any]:
@@ -213,43 +257,65 @@ class SwarmGraphService:
         graph_input: GlobalSwarmState | None,
         thread_id: str,
         *,
+        operation: str,
+        task_requirement: str | None = None,
         db: Session | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        config = swarm_config(thread_id)
-        try:
-            async for chunk in self._graph.astream(
-                graph_input,
-                config=config,
-                stream_mode=["tasks", "updates"],
-                subgraphs=True,
-                version="v2",
-            ):
-                for progress in normalize_stream_chunk(thread_id, chunk):
-                    yield {"event": "progress", "data": progress}
+        with swarm_trace(
+            operation,
+            thread_id,
+            task_requirement=task_requirement,
+        ) as trace:
+            config = swarm_config_with_tracing(
+                swarm_config(thread_id),
+                thread_id,
+                operation,
+            )
+            try:
+                async for chunk in self._graph.astream(
+                    graph_input,
+                    config=config,
+                    stream_mode=["tasks", "updates"],
+                    subgraphs=True,
+                    version="v2",
+                ):
+                    for progress in normalize_stream_chunk(thread_id, chunk):
+                        yield {"event": "progress", "data": progress}
 
-            if db is not None:
-                snapshot = await self._graph.aget_state(config)
-                self._mark_session_done(db, thread_id, dict(snapshot.values or {}))
-            yield {
-                "event": "done",
-                "data": {"thread_id": thread_id, "status": "done"},
-            }
-        except asyncio.CancelledError:
-            if db is not None:
-                self._mark_session_failed(db, thread_id)
-            raise
-        except Exception as exc:
-            if db is not None:
-                self._mark_session_failed(db, thread_id)
-            logger.exception("Swarm graph stream failed for thread_id=%s", thread_id)
-            yield {
-                "event": "error",
-                "data": {
-                    "thread_id": thread_id,
-                    "status": "failed",
-                    "message": str(exc),
-                },
-            }
+                if db is not None:
+                    snapshot = await self._graph.aget_state(config)
+                    result = dict(snapshot.values or {})
+                    await run_in_threadpool(
+                        self._mark_session_done,
+                        db,
+                        thread_id,
+                        result,
+                    )
+                    trace.set_result(result)
+                else:
+                    trace.set_done()
+                yield {
+                    "event": "done",
+                    "data": {"thread_id": thread_id, "status": "done"},
+                }
+            except asyncio.CancelledError:
+                trace.set_cancelled()
+                if db is not None:
+                    await run_in_threadpool(self._mark_session_failed, db, thread_id)
+                raise
+            except Exception as exc:
+                trace.set_error(exc)
+                if db is not None:
+                    await run_in_threadpool(self._mark_session_failed, db, thread_id)
+                logger.exception("Swarm graph stream failed for thread_id=%s", thread_id)
+                yield {
+                    "event": "error",
+                    "data": {
+                        "thread_id": thread_id,
+                        "status": "failed",
+                        "message": str(exc),
+                    },
+                }
 
     @staticmethod
     def _mark_session_running(

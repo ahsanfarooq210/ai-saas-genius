@@ -19,15 +19,16 @@ Read these in order if you are new to the backend:
 | # | Document | Why read it |
 |---|----------|-------------|
 | 1 | [current/project-state.md](current/project-state.md) | live API, wired features, known gaps, and code map |
-| 2 | [graphs/overview.md](graphs/overview.md) | how API, service, parent graph, subgraphs, checkpoints, and app tables work together |
-| 3 | [graphs/subgraph-state-transfer.md](graphs/subgraph-state-transfer.md) | how subgraph outputs merge back into `GlobalSwarmState` |
-| 4 | [graphs/supervisor-graph.md](graphs/supervisor-graph.md) | parent loop, deterministic routing, reviewer reruns, iteration cap |
-| 5 | [graphs/architect-subgraph.md](graphs/architect-subgraph.md) | architecture drafting, complexity scoring, diagram workers, artifact reset |
-| 6 | [graphs/doc-generator-subgraph.md](graphs/doc-generator-subgraph.md) | Markdown doc workers, paired diagrams, doc reduction |
-| 7 | [persistence/checkpointer-postgres-alembic.md](persistence/checkpointer-postgres-alembic.md) | external Postgres checkpointer and Alembic-managed app tables |
-| 8 | [persistence/session-data-flow.md](persistence/session-data-flow.md) | complete run/resume/session save and read flow |
-| 9 | [current/streaming.md](current/streaming.md) | live SSE progress streaming contract and implementation |
-| 10 | [architecture/plan.md](architecture/plan.md) | target / roadmap; not guaranteed to match live code |
+| 2 | [current/authentication.md](current/authentication.md) | signup, login, token refresh, and authenticated request examples |
+| 3 | [graphs/overview.md](graphs/overview.md) | how API, service, parent graph, subgraphs, checkpoints, and app tables work together |
+| 4 | [graphs/subgraph-state-transfer.md](graphs/subgraph-state-transfer.md) | how subgraph outputs merge back into `GlobalSwarmState` |
+| 5 | [graphs/supervisor-graph.md](graphs/supervisor-graph.md) | parent loop, deterministic routing, reviewer reruns, iteration cap |
+| 6 | [graphs/architect-subgraph.md](graphs/architect-subgraph.md) | architecture drafting, complexity scoring, diagram workers, artifact reset |
+| 7 | [graphs/doc-generator-subgraph.md](graphs/doc-generator-subgraph.md) | Markdown doc workers, paired diagrams, doc reduction |
+| 8 | [persistence/checkpointer-postgres-alembic.md](persistence/checkpointer-postgres-alembic.md) | external Postgres checkpointer and Alembic-managed app tables |
+| 9 | [persistence/session-data-flow.md](persistence/session-data-flow.md) | complete run/resume/session save and read flow |
+| 10 | [current/streaming.md](current/streaming.md) | live SSE progress streaming contract and implementation |
+| 11 | [architecture/plan.md](architecture/plan.md) | target / roadmap; not guaranteed to match live code |
 
 **Deep dives (optional):**
 
@@ -40,6 +41,9 @@ Read these in order if you are new to the backend:
 
 **Recent change:**
 
+- [changes/2026-06-28-langfuse-tracing.md](changes/2026-06-28-langfuse-tracing.md) — change log and rollback notes for optional Langfuse tracing on swarm graph execution
+- [changes/2026-06-28-sync-db-threadpool-offload.md](changes/2026-06-28-sync-db-threadpool-offload.md) — change log and rollback notes for offloading sync SQLAlchemy persistence from async FastAPI call paths
+- [current/authentication.md](current/authentication.md) — live JWT signup/login/refresh and request authentication contract
 - [changes/2026-06-28-documentation-restructure.md](changes/2026-06-28-documentation-restructure.md) - change log for the graph/persistence docs cleanup
 - [current/streaming.md](current/streaming.md) — live SSE progress streaming for swarm runs and resumes
 - [changes/2026-06-28-swarm-streaming-progress.md](changes/2026-06-28-swarm-streaming-progress.md) — change log for streaming endpoints, event normalization, and error handling

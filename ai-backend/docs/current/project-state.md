@@ -16,10 +16,13 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 
 | File | Role |
 |------|------|
-| `app/main.py` | App lifespan, Postgres checkpointer, service registration |
+| `app/main.py` | App lifespan, Postgres checkpointer, service registration, Langfuse shutdown |
 | `app/api/v1/router.py` | Route registration |
+| `app/api/v1/endpoints/auth.py` | JWT signup/login/signin/refresh/me handlers |
 | `app/api/v1/endpoints/swarm.py` | Swarm HTTP handlers |
-| `app/services/swarm_graph_service.py` | Async graph invoke/resume, streaming progress, checkpoint payload, app metadata writes |
+| `app/middleware/auth.py` | JWT route middleware for protected API paths |
+| `app/services/swarm_graph_service.py` | Async graph invoke/resume, streaming progress, checkpoint payload, app metadata writes, Langfuse trace boundaries |
+| `app/core/langfuse.py` | Optional Langfuse SDK setup, root swarm spans, LangChain callback config |
 | `app/agent/run.py` | Checkpoint payload shaping |
 | `app/agent/streaming.py` | LangGraph stream event normalization and sanitization |
 | `app/agent/graphs/` | Parent + subgraph topology |
@@ -29,12 +32,16 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 
 ## Runtime flow
 
+All `/api/v1/swarm/*` routes require a bearer access token issued by `/api/v1/auth/login`, `/api/v1/auth/signin`, or `/api/v1/auth/signup`. See [authentication.md](authentication.md) for request examples.
+
 1. `POST /api/v1/swarm/run` or `resume` in `swarm.py`
 2. `SwarmGraphService` writes a `sessions` row as `running`
 3. `SwarmGraphService` invokes the compiled supervisor graph with `_empty_swarm_state`
 4. Graph runs until `END` or iteration cap
 5. `SwarmGraphService` updates `sessions` with the final graph-state projection and mirrors final artifacts/debate logs
 6. Response validated as `SwarmRunResponse` / `SwarmCheckpointResponse`
+
+When `LANGFUSE_TRACING_ENABLED=true` and both Langfuse API keys are present, `SwarmGraphService` wraps run/resume/stream graph calls in root Langfuse spans and passes the Langfuse LangChain callback into the LangGraph config. Keys alone do not enable tracing. Each `thread_id` is used as the Langfuse `session_id`; root span output is summarized to counts/status instead of storing the full graph state.
 
 Streaming variants (`POST /api/v1/swarm/run/stream`, `POST /api/v1/swarm/resume/stream`) use the same graph/service path but return SSE progress events instead of the final result body. After `event: done`, clients fetch durable state/session data by `thread_id`. See [streaming.md](streaming.md).
 
@@ -117,6 +124,11 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 
 | Method | Path |
 |--------|------|
+| `POST` | `/api/v1/auth/signup` |
+| `POST` | `/api/v1/auth/login` |
+| `POST` | `/api/v1/auth/signin` |
+| `POST` | `/api/v1/auth/refresh` |
+| `GET` | `/api/v1/auth/me` |
 | `POST` | `/api/v1/swarm/run` |
 | `POST` | `/api/v1/swarm/run/stream` |
 | `POST` | `/api/v1/swarm/resume` |
@@ -128,6 +140,10 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 | `GET` | `/health` |
 
 Graph introspection is backed by [`app/agent/graph_mermaid.py`](../../app/agent/graph_mermaid.py) (`supervisor`, `architect`, `doc_generator`).
+
+`/api/v1/auth/*` endpoints are public except `/api/v1/auth/me`, which uses the same access-token dependency as protected routes. The JWT middleware protects non-auth `/api/v1/*` paths and supports `Authorization: Bearer <token>` plus the existing `accessToken` cookie fallback.
+
+For login, signup, refresh, and authenticated request examples, see [authentication.md](authentication.md).
 
 `/api/v1/swarm/sessions/{thread_id}` is the app-table result view. It returns the `sessions` row plus persisted final graph fields (`architecture_json`, `component_list`, Mermaid summary, plans, reviewer feedback, supervisor state), final artifact rows, and mirrored debate logs. `/api/v1/swarm/state/{thread_id}` remains the checkpoint-backed state view.
 
@@ -144,6 +160,20 @@ For the full persistence flow, see [../persistence/session-data-flow.md](../pers
 
 Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/main.py).
 
+## Observability
+
+Langfuse tracing is optional and explicitly enabled:
+
+| Setting | Purpose |
+|---------|---------|
+| `LANGFUSE_TRACING_ENABLED` | Enables/disables tracing when credentials exist |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Langfuse project API keys |
+| `LANGFUSE_BASE_URL` | Langfuse Cloud or self-hosted endpoint |
+| `LANGFUSE_TRACING_ENVIRONMENT` | Environment tag sent to Langfuse; defaults to `APP_ENV` |
+| `LANGFUSE_CAPTURE_INPUT` | Controls whether root spans include the submitted task requirement |
+
+LLM prompts, model names, token usage, and nested graph observations are captured through the Langfuse LangChain callback when tracing is enabled.
+
 ---
 
 ## Wired vs not wired
@@ -156,6 +186,8 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 - Subgraph artifact reset and parent plain-list merge (2026-05-30)
 - SSE progress streaming for run/resume with sanitized graph events
 - Session-table final graph-state projection for durable result reads
+- JWT signup/login/signin/refresh/me endpoints and protected `/api/v1/swarm/*` routes
+- Optional Langfuse tracing for swarm run/resume/stream operations
 
 **On disk but not in active graph:**
 
@@ -164,7 +196,6 @@ Configured at startup from `CLOUDINARY_*` settings in [`app/main.py`](../../app/
 
 **Roadmap / not production-complete:**
 
-- Full auth API (README may mention scaffolded auth not wired in router)
 - Human-feedback interrupts
 
 ---

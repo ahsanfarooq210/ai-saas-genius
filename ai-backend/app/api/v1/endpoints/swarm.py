@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import SwarmGraphServiceDep
 from app.db.session import get_db
@@ -104,7 +105,7 @@ async def get_swarm_session(
     db: Session = Depends(get_db),
 ) -> SwarmSessionResponse:
     try:
-        session_payload = service.get_session(thread_id, db)
+        session_payload = await run_in_threadpool(service.get_session, thread_id, db)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

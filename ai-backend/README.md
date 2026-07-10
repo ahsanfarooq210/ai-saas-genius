@@ -49,9 +49,12 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ## Auth APIs
 
 - `POST /api/v1/auth/signup` creates a user account.
+- `POST /api/v1/auth/login` returns `access_token` and `refresh_token`.
 - `POST /api/v1/auth/signin` returns `access_token` and `refresh_token`.
 - `POST /api/v1/auth/refresh` accepts a `refresh_token` and returns a new access/refresh token pair.
 - `GET /api/v1/auth/me` requires `Authorization: Bearer <access_token>`.
+
+All non-auth `/api/v1/*` routes require a valid access token in the `Authorization: Bearer <access_token>` header. The backend also accepts an `accessToken` cookie for browser clients.
 
 ## Migrations (Alembic)
 

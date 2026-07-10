@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="markTop" x1="68" y1="111" x2="183" y2="199" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE8DE"/>
+      <stop offset="0.52" stop-color="#FFAA8C"/>
+      <stop offset="1" stop-color="#FF7E5F"/>
+    </linearGradient>
+    <linearGradient id="markLeft" x1="30" y1="137" x2="126" y2="226" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C95F53"/>
+      <stop offset="1" stop-color="#713B40"/>
+    </linearGradient>
+    <linearGradient id="markRight" x1="128" y1="184" x2="226" y2="135" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A94740"/>
+      <stop offset="1" stop-color="#EF765C"/>
+    </linearGradient>
+    <linearGradient id="markGlass" x1="79" y1="51" x2="179" y2="125" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9F5"/>
+      <stop offset="0.55" stop-color="#FFD5C3"/>
+      <stop offset="1" stop-color="#FEB47B"/>
+    </linearGradient>
+    <linearGradient id="markSheen" x1="69" y1="53" x2="181" y2="110" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9F5" stop-opacity="0.5"/>
+      <stop offset="0.45" stop-color="#FFF9F5" stop-opacity="0"/>
+      <stop offset="0.72" stop-color="#FFF9F5" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FFF9F5" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="markGlow" cx="0" cy="0" r="1" gradientTransform="translate(128 78) rotate(90) scale(61)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB49C" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#FF7E5F" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="markShadow" x="-30%" y="-25%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#3D3436" flood-opacity="0.24"/>
+    </filter>
+    <filter id="markPulse" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <circle cx="128" cy="78" r="61" fill="url(#markGlow)"/>
+  <g filter="url(#markShadow)">
+    <path d="M30 145L128 195V225L30 175V145Z" fill="url(#markLeft)"/>
+    <path d="M128 195L226 145V175L128 225V195Z" fill="url(#markRight)"/>
+    <path d="M30 145L128 95L226 145L128 195L30 145Z" fill="url(#markTop)"/>
+    <path d="M30 145L128 195L226 145" stroke="#FFF9F5" stroke-opacity="0.48" stroke-width="2"/>
+    <path d="M128 195V225" stroke="#713B40" stroke-opacity="0.42" stroke-width="2"/>
+
+    <path d="M54 77L128 115L202 77V101L128 139L54 101V77Z" fill="#B95049" fill-opacity="0.72"/>
+    <path d="M54 77L128 39L202 77L128 115L54 77Z" fill="url(#markGlass)" stroke="#FFE8DE" stroke-width="2.5"/>
+    <path d="M74 77L128 49L182 77L128 105L74 77Z" fill="#FF7E5F" fill-opacity="0.18" stroke="#FFF9F5" stroke-opacity="0.7" stroke-width="2"/>
+    <path d="M74 77L128 49L182 77L128 105L74 77Z" fill="url(#markSheen)" opacity="0.74"/>
+
+    <path d="M105 77L128 65L151 77L128 89L105 77Z" fill="#FF7E5F"/>
+    <circle cx="128" cy="77" r="8" fill="#FFF9F5" fill-opacity="0.32" filter="url(#markPulse)"/>
+    <circle cx="128" cy="77" r="5" fill="#FFF9F5"/>
+  </g>
+</svg>

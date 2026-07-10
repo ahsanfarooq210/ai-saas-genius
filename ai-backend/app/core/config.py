@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 10080
+    # Comma-separated list of exact frontend origins allowed to make credentialed
+    # (cookie-bearing) cross-origin requests. No wildcard is permitted alongside
+    # allow_credentials=True (browsers reject it), so this must be explicit.
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:5173"
+    # Auth cookies require Secure in production (HTTPS-only). Local HTTP dev
+    # needs this off, since browsers silently drop Secure cookies over plain HTTP.
+    COOKIE_SECURE: bool = True
     GOOGLE_API_KEY: Optional[str] = None
     # OpenCode Go (OpenAI-compatible); used by `app.core.llm.get_chat_llm`.
     OPENCODE_API_KEY: Optional[str] = None
@@ -31,6 +38,12 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: Optional[str] = None
     CLOUDINARY_API_SECRET: Optional[str] = None
     CLOUDINARY_ARTIFACT_FOLDER: str = "swarm-artifacts"
+    LANGFUSE_TRACING_ENABLED: bool = False
+    LANGFUSE_PUBLIC_KEY: Optional[str] = None
+    LANGFUSE_SECRET_KEY: Optional[str] = None
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+    LANGFUSE_TRACING_ENVIRONMENT: Optional[str] = None
+    LANGFUSE_CAPTURE_INPUT: bool = True
     # If unset, non-localhost hosts get sslmode=require (Neon/Supabase/RDS). Override with "disable" for local Docker, etc.
     LANGGRAPH_POSTGRES_SSLMODE: Optional[str] = None
 
@@ -62,6 +75,16 @@ class Settings(BaseSettings):
         return _with_langgraph_postgres_params(
             u,
             sslmode_override=self.LANGGRAPH_POSTGRES_SSLMODE,
+        )
+
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
+
+    def langfuse_enabled(self) -> bool:
+        return bool(
+            self.LANGFUSE_TRACING_ENABLED
+            and self.LANGFUSE_PUBLIC_KEY
+            and self.LANGFUSE_SECRET_KEY
         )
 
 

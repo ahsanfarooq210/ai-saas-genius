@@ -5,26 +5,123 @@ This document describes the live HTTP API exposed by the files in
 typed API layer.
 
 Live code wins over this guide. The registered v1 routes are defined in
-`app/api/v1/router.py`; today it only includes `app/api/v1/endpoints/swarm.py`.
-The auth schemas in `app/schemas/auth.py` are scaffolded, but auth endpoints are
-not currently registered.
+`app/api/v1/router.py`; today it includes `app/api/v1/endpoints/auth.py` and
+`app/api/v1/endpoints/swarm.py`.
 
 ## Base paths
 
 | Scope | Base path | Source |
 |-------|-----------|--------|
 | Health check | `/health` | `app/main.py` |
+| Auth API | `/api/v1/auth` | `app/api/v1/endpoints/auth.py` |
 | Swarm API | `/api/v1/swarm` | `app/main.py` + `app/api/v1/router.py` |
 
 The frontend should treat `thread_id` as the stable client/session key for a
 swarm run. Use the same `thread_id` to stream progress, resume work, read
 checkpoint state, and read persisted session results.
 
+## Authentication model
+
+`JWTAuthMiddleware` protects `/api/v1/*` by default, with these public paths
+(no JWT required — the CSRF rule below applies independently of this list):
+
+- `/api/v1/auth`
+- `/health`
+- `/docs`
+- `/redoc`
+- `/openapi.json`
+
+**Cookies are now the primary auth transport.** `signup`, `login`/`signin`,
+and `refresh` set three cookies on the response — `accessToken`,
+`refreshToken`, and `csrfToken` — in addition to still returning tokens in the
+JSON body (see "Dual-mode migration" below).
+
+| Cookie | HttpOnly | Secure | SameSite | Path |
+|--------|----------|--------|----------|------|
+| `accessToken` | Yes | Yes | `Lax` | `/` |
+| `refreshToken` | Yes | Yes | `Strict` | `/api/v1/auth/refresh` only |
+| `csrfToken` | **No** | Yes | `Lax` | `/` |
+
+Token resolution precedence for protected requests: **`Authorization` header
+first, then the `accessToken` cookie.** A browser client that lets the cookie
+do the work does not need to set the header at all — just use
+`credentials: "include"` / `withCredentials: true` so the browser sends
+cookies cross-origin, and make sure the frontend origin is in the backend's
+`CORS_ALLOWED_ORIGINS`.
+
+The bearer header is optional/deprecated going forward but still fully
+supported — existing code that manually attaches
+`Authorization: Bearer <token>` keeps working unchanged, and is in fact
+exempt from the CSRF requirement below (see "CSRF requirements").
+
+Protected endpoints:
+
+- All `/api/v1/swarm/*` routes
+- `GET /api/v1/auth/me`
+
+Public endpoints (no JWT required):
+
+- `POST /api/v1/auth/signup`
+- `POST /api/v1/auth/signin`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+- `GET /health`
+
+## CSRF requirements
+
+Any `POST`/`PUT`/`PATCH`/`DELETE` request that relies on the `accessToken` or
+`refreshToken` cookie (i.e. no `Authorization` header on the request) must
+echo the `csrfToken` cookie value back as an `X-CSRF-Token` header, or the
+backend returns `403` with `{"detail": "CSRF token missing or invalid"}`.
+
+```ts
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+apiClient.interceptors.request.use((config) => {
+  const method = config.method?.toUpperCase();
+  if (method && method !== "GET" && method !== "HEAD") {
+    const csrfToken = getCookie("csrfToken");
+    if (csrfToken) config.headers.set("X-CSRF-Token", csrfToken);
+  }
+  return config;
+});
+```
+
+This check is skipped for requests carrying an `Authorization` bearer header,
+and for requests where neither auth cookie is present yet (e.g. the very
+first `signup`/`signin` call).
+
+## Dual-mode migration
+
+`TokenResponse` (`access_token`, `refresh_token`, `token_type`) is still
+returned in the body of `signup`, `login`, `signin`, and `refresh` so any code
+still reading `response.data.access_token` keeps working during the
+transition to cookies. Once the frontend stops reading those fields (relying
+on cookies + `/auth/me` instead), the body fields should be dropped — this is
+a migration aid, not a long-term contract.
+
+## Logout
+
+`POST /api/v1/auth/logout` clears all three cookies. It does not require a
+request body. There is currently **no server-side token revocation** — no
+token blacklist/allowlist table exists — so a bearer token captured outside
+the cookie flow remains valid until it naturally expires even after logout.
+
 ## Endpoint summary
 
 | Method | Path | Purpose | Returns |
 |--------|------|---------|---------|
 | `GET` | `/health` | Check that the backend app is alive | `{"status":"ok"}` |
+| `POST` | `/api/v1/auth/signup` | Register a user and issue tokens | Access and refresh tokens |
+| `POST` | `/api/v1/auth/signin` | Sign in with email and password | Access and refresh tokens |
+| `POST` | `/api/v1/auth/login` | Alias for signin | Access and refresh tokens |
+| `POST` | `/api/v1/auth/refresh` | Exchange a refresh token for new tokens | Access and refresh tokens |
+| `POST` | `/api/v1/auth/logout` | Clear auth cookies (no server-side revocation yet) | `{"detail": "Logged out"}` |
+| `GET` | `/api/v1/auth/me` | Read the current authenticated user | User profile |
 | `POST` | `/api/v1/swarm/run` | Start a new blocking swarm run | Full final graph state |
 | `POST` | `/api/v1/swarm/run/stream` | Start a new streaming swarm run | SSE progress events only |
 | `POST` | `/api/v1/swarm/resume` | Resume an existing checkpoint and wait for final state | Full final graph state |
@@ -35,6 +132,47 @@ checkpoint state, and read persisted session results.
 | `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` | Render one graph topology as Mermaid source | Mermaid text |
 
 ## Common request models
+
+### Signup request
+
+Used by `POST /api/v1/auth/signup`.
+
+```ts
+type SignUpRequest = {
+  email: string;
+  password: string;
+  full_name?: string | null;
+};
+```
+
+Validation:
+
+- `email` must be a valid email address.
+- `password` must be 8 to 128 characters.
+- `full_name` is optional.
+
+### Signin request
+
+Used by `POST /api/v1/auth/signin` and `POST /api/v1/auth/login`.
+
+```ts
+type SignInRequest = {
+  email: string;
+  password: string;
+};
+```
+
+### Refresh request
+
+Used by `POST /api/v1/auth/refresh`. The field is optional: cookie clients can
+omit the body entirely and rely on the `refreshToken` cookie; an explicit
+value in the body takes precedence over the cookie when both are present.
+
+```ts
+type RefreshTokenRequest = {
+  refresh_token?: string | null;
+};
+```
 
 ### Start run request
 
@@ -59,6 +197,212 @@ type SwarmResumeRequest = {
   thread_id: string;
 };
 ```
+
+## Auth responses
+
+Token response:
+
+```ts
+type TokenResponse = {
+  access_token: string;
+  refresh_token: string;
+  token_type: "bearer";
+};
+```
+
+Current user response:
+
+```ts
+type UserResponse = {
+  id: number;
+  email: string;
+  full_name: string | null;
+  is_active: boolean;
+};
+```
+
+Logout response:
+
+```ts
+type LogoutResponse = {
+  detail: string;
+};
+```
+
+## Signup
+
+```http
+POST /api/v1/auth/signup
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "ada@example.com",
+  "password": "valid-password",
+  "full_name": "Ada Lovelace"
+}
+```
+
+Purpose:
+
+- Creates a new active user.
+- Lowercases the email before storing it.
+- Sets `accessToken`, `refreshToken`, and `csrfToken` cookies.
+- Returns access and refresh tokens immediately after signup (dual-mode; see
+  "Dual-mode migration" above).
+
+Success:
+
+- `201 Created`
+- Body: `TokenResponse`
+
+Errors:
+
+- `409` with `{"detail":"Email is already registered"}` when the email already
+  exists.
+- `422` for validation errors such as invalid email or too-short password.
+
+## Signin and login
+
+```http
+POST /api/v1/auth/signin
+Content-Type: application/json
+```
+
+`POST /api/v1/auth/login` is an alias with the same request and response
+contract.
+
+```json
+{
+  "email": "ada@example.com",
+  "password": "valid-password"
+}
+```
+
+Purpose:
+
+- Verifies email and password.
+- Rejects inactive users.
+- Sets `accessToken`, `refreshToken`, and `csrfToken` cookies.
+- Returns access and refresh tokens (dual-mode; see "Dual-mode migration"
+  above).
+
+Success:
+
+- `200 OK`
+- Body: `TokenResponse`
+
+Errors:
+
+- `401` with `{"detail":"Could not validate credentials"}` for missing user or
+  bad password.
+- `403` with `{"detail":"Inactive user"}` for inactive users.
+- `422` for validation errors.
+
+## Refresh tokens
+
+Cookie client (browser) — no body, but must send the CSRF header since this
+is a state-changing request relying on the `refreshToken` cookie:
+
+```http
+POST /api/v1/auth/refresh
+X-CSRF-Token: <csrfToken cookie value>
+```
+
+Bearer-style client — explicit body, no cookies/CSRF header involved:
+
+```http
+POST /api/v1/auth/refresh
+Content-Type: application/json
+```
+
+```json
+{
+  "refresh_token": "<refresh_token>"
+}
+```
+
+Purpose:
+
+- Resolves the refresh token from the body if provided, otherwise from the
+  `refreshToken` cookie.
+- Validates that it decodes as a refresh token.
+- Verifies the user still exists and is active.
+- Issues a fresh access token and refresh token, and sets new
+  `accessToken`/`refreshToken`/`csrfToken` cookies.
+
+Success:
+
+- `200 OK`
+- Body: `TokenResponse`
+
+Errors:
+
+- `401` with `{"detail":"Could not validate credentials"}` when the token is
+  invalid, expired, the wrong token type, or belongs to an inactive/missing
+  user — this also covers the case where no token was supplied at all (no
+  body value and no cookie).
+- `403` with `{"detail":"CSRF token missing or invalid"}` for a cookie-based
+  request missing a matching `X-CSRF-Token` header.
+- `422` for validation errors.
+
+Frontend behavior:
+
+- Cookie clients: call with no body and the `X-CSRF-Token` header; ignore
+  `access_token`/`refresh_token` in the response body (cookies are already
+  updated) unless still in the dual-mode migration window.
+- Bearer clients: keep sending `refresh_token` in the body as before; store
+  the new `refresh_token` from the response and only send it to this
+  endpoint.
+- Do not send an access token to `/auth/refresh`; the backend requires a
+  refresh token type.
+
+## Logout
+
+```http
+POST /api/v1/auth/logout
+X-CSRF-Token: <csrfToken cookie value>
+```
+
+Purpose:
+
+- Clears `accessToken`, `refreshToken`, and `csrfToken` cookies
+  (`Set-Cookie` with `Max-Age=0`, matching each cookie's original `Path`).
+- Does **not** revoke the token server-side — there is no token
+  blacklist/allowlist table in this codebase yet. A bearer token used outside
+  the cookie flow remains valid until it naturally expires.
+
+Success:
+
+- `200 OK`
+- Body: `LogoutResponse` (`{"detail": "Logged out"}`)
+
+Errors:
+
+- `403` with `{"detail":"CSRF token missing or invalid"}` if called with
+  cookies present but no matching `X-CSRF-Token` header.
+
+## Current user
+
+```http
+GET /api/v1/auth/me
+Authorization: Bearer <access_token>
+```
+
+Purpose:
+
+- Returns the authenticated active user profile.
+- Useful for app bootstrapping and "am I signed in?" checks.
+
+Success:
+
+- `200 OK`
+- Body: `UserResponse`
+
+Errors:
+
+- `401` with `WWW-Authenticate: Bearer` when no valid access token is supplied.
 
 ## Artifact contract
 
@@ -91,6 +435,7 @@ Frontend behavior:
 ```http
 POST /api/v1/swarm/run
 Content-Type: application/json
+Authorization: Bearer <access_token>
 ```
 
 ```json
@@ -165,6 +510,7 @@ type DebateLog = {
 POST /api/v1/swarm/run/stream
 Content-Type: application/json
 Accept: text/event-stream
+Authorization: Bearer <access_token>
 ```
 
 ```json
@@ -266,6 +612,7 @@ Frontend behavior:
 ```http
 POST /api/v1/swarm/resume
 Content-Type: application/json
+Authorization: Bearer <access_token>
 ```
 
 ```json
@@ -291,6 +638,7 @@ wait for completion. If the graph has no checkpoint for the supplied
 POST /api/v1/swarm/resume/stream
 Content-Type: application/json
 Accept: text/event-stream
+Authorization: Bearer <access_token>
 ```
 
 ```json
@@ -316,6 +664,7 @@ GET /api/v1/swarm/sessions/{thread_id}
 
 ```http
 GET /api/v1/swarm/state/{thread_id}
+Authorization: Bearer <access_token>
 ```
 
 Purpose:
@@ -382,6 +731,7 @@ Notes:
 
 ```http
 GET /api/v1/swarm/sessions/{thread_id}
+Authorization: Bearer <access_token>
 ```
 
 Purpose:
@@ -438,6 +788,7 @@ Frontend behavior:
 
 ```http
 GET /api/v1/swarm/graphs
+Authorization: Bearer <access_token>
 ```
 
 Purpose:
@@ -472,6 +823,7 @@ Current graph IDs:
 
 ```http
 GET /api/v1/swarm/graphs/{graph_id}/mermaid?xray=false
+Authorization: Bearer <access_token>
 ```
 
 Purpose:
@@ -505,6 +857,12 @@ Frontend behavior:
 Minimum useful client functions:
 
 ```ts
+async function signUp(input: SignUpRequest): Promise<TokenResponse>;
+async function signIn(input: SignInRequest): Promise<TokenResponse>;
+async function logIn(input: SignInRequest): Promise<TokenResponse>;
+async function refreshAuth(input?: RefreshTokenRequest): Promise<TokenResponse>;
+async function logout(): Promise<LogoutResponse>;
+async function getCurrentUser(): Promise<UserResponse>;
 async function startSwarmRun(input: SwarmRunRequest): Promise<SwarmRunResponse>;
 async function resumeSwarmRun(input: SwarmResumeRequest): Promise<SwarmRunResponse>;
 async function getSwarmState(threadId: string): Promise<SwarmCheckpointResponse>;
@@ -532,12 +890,21 @@ type SwarmStreamHandlers = {
 
 Implementation notes:
 
+- Prefer cookie-based auth for browser clients: send requests with
+  `credentials: "include"` (`fetch`) / `withCredentials: true` (`axios`)
+  instead of manually attaching `Authorization: Bearer <access_token>`. The
+  bearer header still works (and is required for non-browser clients), but is
+  optional/deprecated for the frontend now that cookies are set automatically.
+- Attach `X-CSRF-Token` (read from the non-`HttpOnly` `csrfToken` cookie) to
+  every `POST`/`PUT`/`PATCH`/`DELETE` request — see "CSRF requirements" above.
+  Skip this only for requests that use the bearer header instead of cookies.
+- On `401`, call `/api/v1/auth/refresh` (cookie clients: no body needed,
+  just the CSRF header) then retry the original request once.
 - Native `EventSource` cannot send a JSON `POST` body. Use `fetch` streaming,
   `@microsoft/fetch-event-source`, or another SSE client that supports POST
-  bodies.
+  bodies and custom auth headers.
 - The stream response headers include `Cache-Control: no-cache` and
   `X-Accel-Buffering: no`.
 - Treat non-2xx JSON responses as API errors. For stream endpoints, also handle
   `event: error`.
-- The backend does not require auth for the registered swarm routes today.
-
+- The backend requires auth for all registered swarm routes today.
