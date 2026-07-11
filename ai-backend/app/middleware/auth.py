@@ -1,4 +1,3 @@
-import secrets
 from collections.abc import Callable, Sequence
 
 from fastapi import Request
@@ -9,16 +8,10 @@ from starlette.responses import JSONResponse, Response
 from app.core.config import settings
 from app.core.cookies import (
     ACCESS_TOKEN_COOKIE,
-    CSRF_HEADER_NAME,
-    CSRF_TOKEN_COOKIE,
-    REFRESH_TOKEN_COOKIE,
 )
 from app.core.security import decode_token
 from app.db.session import SessionLocal
 from app.models.user import User
-
-_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
-
 
 def get_access_token_from_request(request: Request) -> str | None:
     """Resolve the access token for a request.
@@ -46,34 +39,6 @@ def _unauthorized(detail: str) -> JSONResponse:
         status_code=401,
         headers={"WWW-Authenticate": "Bearer"},
     )
-
-
-def _csrf_rejected() -> JSONResponse:
-    return JSONResponse({"detail": "CSRF token missing or invalid"}, status_code=403)
-
-
-def verify_csrf(request: Request) -> JSONResponse | None:
-    """Double-submit CSRF check for cookie-authenticated, state-changing requests.
-
-    Skipped when: the method is safe (GET/HEAD/OPTIONS/TRACE), the request
-    carries an explicit `Authorization` bearer header (not exploitable via
-    CSRF since browsers won't auto-attach custom headers cross-site), or
-    neither auth cookie is present (e.g. signup/first sign-in, before any
-    cookie has been issued).
-    """
-    if request.method.upper() in _SAFE_METHODS:
-        return None
-    if request.headers.get("Authorization"):
-        return None
-    if not (request.cookies.get(ACCESS_TOKEN_COOKIE) or request.cookies.get(REFRESH_TOKEN_COOKIE)):
-        return None
-
-    csrf_cookie = request.cookies.get(CSRF_TOKEN_COOKIE)
-    csrf_header = request.headers.get(CSRF_HEADER_NAME)
-    if not csrf_cookie or not csrf_header or not secrets.compare_digest(csrf_cookie, csrf_header):
-        return _csrf_rejected()
-
-    return None
 
 
 def _matches_path_prefix(path: str, prefix: str) -> bool:
@@ -106,12 +71,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         request.state.user_id = None
-
-        # Runs for every path (including public /auth/refresh and
-        # /auth/logout), since those also mutate state using auth cookies.
-        csrf_rejection = verify_csrf(request)
-        if csrf_rejection is not None:
-            return csrf_rejection
 
         if not self._requires_auth(request.url.path):
             return await call_next(request)

@@ -147,17 +147,13 @@ def test_refresh_requires_refresh_token_type() -> None:
         },
     )
     tokens = signup.json()
-    csrf_headers = {"X-CSRF-Token": signup.cookies.get("csrfToken")}
-
     rejected = client.post(
         "/api/v1/auth/refresh",
         json={"refresh_token": tokens["access_token"]},
-        headers=csrf_headers,
     )
     accepted = client.post(
         "/api/v1/auth/refresh",
         json={"refresh_token": tokens["refresh_token"]},
-        headers=csrf_headers,
     )
 
     assert rejected.status_code == 401
@@ -177,14 +173,11 @@ def test_signup_sets_httponly_cookies_with_expected_flags() -> None:
     assert signup.status_code == 201
     access_cookie = signup.cookies.get("accessToken")
     refresh_cookie = signup.cookies.get("refreshToken")
-    csrf_cookie = signup.cookies.get("csrfToken")
-    assert access_cookie and refresh_cookie and csrf_cookie
+    assert access_cookie and refresh_cookie
 
     set_cookie_headers = signup.headers.get_list("set-cookie")
     access_header = next(h for h in set_cookie_headers if h.startswith("accessToken="))
     refresh_header = next(h for h in set_cookie_headers if h.startswith("refreshToken="))
-    csrf_header = next(h for h in set_cookie_headers if h.startswith("csrfToken="))
-
     assert "HttpOnly" in access_header
     assert "SameSite=lax" in access_header
     assert "Path=/" in access_header
@@ -192,9 +185,7 @@ def test_signup_sets_httponly_cookies_with_expected_flags() -> None:
     assert "HttpOnly" in refresh_header
     assert "SameSite=strict" in refresh_header
     assert "Path=/api/v1/auth/refresh" in refresh_header
-
-    assert "HttpOnly" not in csrf_header
-
+    assert not any(header.startswith("csrfToken=") for header in set_cookie_headers)
 
 def test_refresh_falls_back_to_cookie_when_body_omitted() -> None:
     client, _ = _client()
@@ -204,11 +195,7 @@ def test_refresh_falls_back_to_cookie_when_body_omitted() -> None:
     )
     assert signup.status_code == 201
 
-    csrf_token = signup.cookies.get("csrfToken")
-    refreshed = client.post(
-        "/api/v1/auth/refresh",
-        headers={"X-CSRF-Token": csrf_token},
-    )
+    refreshed = client.post("/api/v1/auth/refresh")
 
     assert refreshed.status_code == 200
     assert refreshed.json()["access_token"]
@@ -222,31 +209,17 @@ def test_refresh_without_body_or_cookie_is_rejected() -> None:
     assert response.status_code == 401
 
 
-def test_state_changing_cookie_request_without_csrf_header_is_rejected() -> None:
+def test_state_changing_cookie_request_needs_no_extra_header() -> None:
     client, _ = _client()
     signup = client.post(
         "/api/v1/auth/signup",
-        json={"email": "csrf@example.com", "password": "valid-password"},
+        json={"email": "cookie-post@example.com", "password": "valid-password"},
     )
     assert signup.status_code == 201
 
-    rejected = client.post("/api/v1/auth/refresh")
+    refreshed = client.post("/api/v1/auth/refresh")
 
-    assert rejected.status_code == 403
-    assert rejected.json()["detail"] == "CSRF token missing or invalid"
-
-
-def test_bearer_header_request_is_exempt_from_csrf_check() -> None:
-    client, session_factory = _client()
-    user_id = _create_user(session_factory, "bearer-csrf@example.com")
-    access_token = create_access_token(str(user_id))
-
-    response = client.post(
-        "/api/v1/auth/logout",
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-
-    assert response.status_code == 200
+    assert refreshed.status_code == 200
 
 
 def test_logout_clears_auth_cookies() -> None:
@@ -255,12 +228,7 @@ def test_logout_clears_auth_cookies() -> None:
         "/api/v1/auth/signup",
         json={"email": "logout@example.com", "password": "valid-password"},
     )
-    csrf_token = signup.cookies.get("csrfToken")
-
-    response = client.post(
-        "/api/v1/auth/logout",
-        headers={"X-CSRF-Token": csrf_token},
-    )
+    response = client.post("/api/v1/auth/logout")
 
     assert response.status_code == 200
     set_cookie_headers = response.headers.get_list("set-cookie")
@@ -270,6 +238,7 @@ def test_logout_clears_auth_cookies() -> None:
     assert any(
         h.startswith("refreshToken=") and "Max-Age=0" in h for h in set_cookie_headers
     )
+    assert not any(header.startswith("csrfToken=") for header in set_cookie_headers)
 
 
 def test_swarm_routes_require_valid_bearer_token() -> None:

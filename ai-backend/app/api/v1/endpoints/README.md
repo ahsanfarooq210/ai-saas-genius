@@ -22,8 +22,7 @@ checkpoint state, and read persisted session results.
 
 ## Authentication model
 
-`JWTAuthMiddleware` protects `/api/v1/*` by default, with these public paths
-(no JWT required — the CSRF rule below applies independently of this list):
+`JWTAuthMiddleware` protects `/api/v1/*` by default, with these public paths:
 
 - `/api/v1/auth`
 - `/health`
@@ -32,15 +31,14 @@ checkpoint state, and read persisted session results.
 - `/openapi.json`
 
 **Cookies are now the primary auth transport.** `signup`, `login`/`signin`,
-and `refresh` set three cookies on the response — `accessToken`,
-`refreshToken`, and `csrfToken` — in addition to still returning tokens in the
-JSON body (see "Dual-mode migration" below).
+and `refresh` set `accessToken` and `refreshToken` cookies on the response,
+in addition to still returning tokens in the JSON body (see "Dual-mode
+migration" below).
 
 | Cookie | HttpOnly | Secure | SameSite | Path |
 |--------|----------|--------|----------|------|
 | `accessToken` | Yes | Yes | `Lax` | `/` |
 | `refreshToken` | Yes | Yes | `Strict` | `/api/v1/auth/refresh` only |
-| `csrfToken` | **No** | Yes | `Lax` | `/` |
 
 Token resolution precedence for protected requests: **`Authorization` header
 first, then the `accessToken` cookie.** A browser client that lets the cookie
@@ -51,8 +49,7 @@ cookies cross-origin, and make sure the frontend origin is in the backend's
 
 The bearer header is optional/deprecated going forward but still fully
 supported — existing code that manually attaches
-`Authorization: Bearer <token>` keeps working unchanged, and is in fact
-exempt from the CSRF requirement below (see "CSRF requirements").
+`Authorization: Bearer <token>` keeps working unchanged.
 
 Protected endpoints:
 
@@ -68,33 +65,6 @@ Public endpoints (no JWT required):
 - `POST /api/v1/auth/logout`
 - `GET /health`
 
-## CSRF requirements
-
-Any `POST`/`PUT`/`PATCH`/`DELETE` request that relies on the `accessToken` or
-`refreshToken` cookie (i.e. no `Authorization` header on the request) must
-echo the `csrfToken` cookie value back as an `X-CSRF-Token` header, or the
-backend returns `403` with `{"detail": "CSRF token missing or invalid"}`.
-
-```ts
-function getCookie(name: string): string | null {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-apiClient.interceptors.request.use((config) => {
-  const method = config.method?.toUpperCase();
-  if (method && method !== "GET" && method !== "HEAD") {
-    const csrfToken = getCookie("csrfToken");
-    if (csrfToken) config.headers.set("X-CSRF-Token", csrfToken);
-  }
-  return config;
-});
-```
-
-This check is skipped for requests carrying an `Authorization` bearer header,
-and for requests where neither auth cookie is present yet (e.g. the very
-first `signup`/`signin` call).
-
 ## Dual-mode migration
 
 `TokenResponse` (`access_token`, `refresh_token`, `token_type`) is still
@@ -106,7 +76,7 @@ a migration aid, not a long-term contract.
 
 ## Logout
 
-`POST /api/v1/auth/logout` clears all three cookies. It does not require a
+`POST /api/v1/auth/logout` clears both auth cookies. It does not require a
 request body. There is currently **no server-side token revocation** — no
 token blacklist/allowlist table exists — so a bearer token captured outside
 the cookie flow remains valid until it naturally expires even after logout.
@@ -248,7 +218,7 @@ Purpose:
 
 - Creates a new active user.
 - Lowercases the email before storing it.
-- Sets `accessToken`, `refreshToken`, and `csrfToken` cookies.
+- Sets `accessToken` and `refreshToken` cookies.
 - Returns access and refresh tokens immediately after signup (dual-mode; see
   "Dual-mode migration" above).
 
@@ -284,7 +254,7 @@ Purpose:
 
 - Verifies email and password.
 - Rejects inactive users.
-- Sets `accessToken`, `refreshToken`, and `csrfToken` cookies.
+- Sets `accessToken` and `refreshToken` cookies.
 - Returns access and refresh tokens (dual-mode; see "Dual-mode migration"
   above).
 
@@ -302,15 +272,14 @@ Errors:
 
 ## Refresh tokens
 
-Cookie client (browser) — no body, but must send the CSRF header since this
-is a state-changing request relying on the `refreshToken` cookie:
+Cookie client (browser) — no request body is needed; the browser sends the
+`refreshToken` cookie:
 
 ```http
 POST /api/v1/auth/refresh
-X-CSRF-Token: <csrfToken cookie value>
 ```
 
-Bearer-style client — explicit body, no cookies/CSRF header involved:
+Bearer-style client — explicit body:
 
 ```http
 POST /api/v1/auth/refresh
@@ -330,7 +299,7 @@ Purpose:
 - Validates that it decodes as a refresh token.
 - Verifies the user still exists and is active.
 - Issues a fresh access token and refresh token, and sets new
-  `accessToken`/`refreshToken`/`csrfToken` cookies.
+  `accessToken`/`refreshToken` cookies.
 
 Success:
 
@@ -343,14 +312,12 @@ Errors:
   invalid, expired, the wrong token type, or belongs to an inactive/missing
   user — this also covers the case where no token was supplied at all (no
   body value and no cookie).
-- `403` with `{"detail":"CSRF token missing or invalid"}` for a cookie-based
-  request missing a matching `X-CSRF-Token` header.
 - `422` for validation errors.
 
 Frontend behavior:
 
-- Cookie clients: call with no body and the `X-CSRF-Token` header; ignore
-  `access_token`/`refresh_token` in the response body (cookies are already
+- Cookie clients: call with no body; ignore `access_token`/`refresh_token` in
+  the response body (cookies are already
   updated) unless still in the dual-mode migration window.
 - Bearer clients: keep sending `refresh_token` in the body as before; store
   the new `refresh_token` from the response and only send it to this
@@ -362,12 +329,11 @@ Frontend behavior:
 
 ```http
 POST /api/v1/auth/logout
-X-CSRF-Token: <csrfToken cookie value>
 ```
 
 Purpose:
 
-- Clears `accessToken`, `refreshToken`, and `csrfToken` cookies
+- Clears `accessToken` and `refreshToken` cookies
   (`Set-Cookie` with `Max-Age=0`, matching each cookie's original `Path`).
 - Does **not** revoke the token server-side — there is no token
   blacklist/allowlist table in this codebase yet. A bearer token used outside
@@ -377,11 +343,6 @@ Success:
 
 - `200 OK`
 - Body: `LogoutResponse` (`{"detail": "Logged out"}`)
-
-Errors:
-
-- `403` with `{"detail":"CSRF token missing or invalid"}` if called with
-  cookies present but no matching `X-CSRF-Token` header.
 
 ## Current user
 
@@ -895,11 +856,8 @@ Implementation notes:
   instead of manually attaching `Authorization: Bearer <access_token>`. The
   bearer header still works (and is required for non-browser clients), but is
   optional/deprecated for the frontend now that cookies are set automatically.
-- Attach `X-CSRF-Token` (read from the non-`HttpOnly` `csrfToken` cookie) to
-  every `POST`/`PUT`/`PATCH`/`DELETE` request — see "CSRF requirements" above.
-  Skip this only for requests that use the bearer header instead of cookies.
-- On `401`, call `/api/v1/auth/refresh` (cookie clients: no body needed,
-  just the CSRF header) then retry the original request once.
+- On `401`, call `/api/v1/auth/refresh` (cookie clients: no body needed) then
+  retry the original request once.
 - Native `EventSource` cannot send a JSON `POST` body. Use `fetch` streaming,
   `@microsoft/fetch-event-source`, or another SSE client that supports POST
   bodies and custom auth headers.

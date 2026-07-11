@@ -8,7 +8,6 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
-    generate_csrf_token,
     get_password_hash,
     verify_password,
 )
@@ -38,7 +37,6 @@ def _issue_tokens(user: User, response: Response) -> TokenResponse:
         response,
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
-        csrf_token=generate_csrf_token(),
     )
     return tokens
 

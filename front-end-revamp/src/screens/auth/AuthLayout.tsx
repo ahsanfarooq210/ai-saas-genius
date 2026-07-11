@@ -1,25 +1,25 @@
-import type { ReactNode } from "react"
-import { ChartLineUp, Lightning, ShieldCheck } from "@phosphor-icons/react"
+import type { ReactNode } from "react";
+import { ChartLineUp, Lightning, ShieldCheck } from "@phosphor-icons/react";
 
-import heroIllustration from "@/assets/hero-illustration.svg"
-import logo from "@/assets/logo.svg"
-import logoLight from "@/assets/logo-light.svg"
+import heroIllustration from "@/assets/hero-illustration.svg";
+import logo from "@/assets/logo.svg";
+import logoLight from "@/assets/logo-light.svg";
 
 const features = [
   { icon: Lightning, label: "AI architecture plans" },
   { icon: ChartLineUp, label: "Mermaid diagrams and docs" },
   { icon: ShieldCheck, label: "Scale and security reviews" },
-]
+];
 
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <main className="grid min-h-screen bg-background lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
       <aside className="dark relative hidden min-h-screen flex-col overflow-hidden bg-background px-12 py-10 text-foreground lg:flex xl:px-16">
         <div className="bg-grid-pattern absolute inset-0 opacity-40" />
-        <div className="absolute -top-24 -left-32 size-[30rem] rounded-full bg-primary/35 blur-3xl" />
-        <div className="absolute right-0 bottom-0 size-[24rem] translate-x-1/3 translate-y-1/3 rounded-full bg-accent/20 blur-3xl" />
+        <div className="absolute -top-24 -left-32 size-120 rounded-full bg-primary/35 blur-3xl" />
+        <div className="absolute right-0 bottom-0 size-96 translate-x-1/3 translate-y-1/3 rounded-full bg-accent/20 blur-3xl" />
         <div className="absolute top-1/2 left-1/2 size-80 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/10" />
-        <div className="absolute top-1/2 left-1/2 size-[26rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/5" />
+        <div className="absolute top-1/2 left-1/2 size-104 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/5" />
 
         <div className="relative">
           <img src={logoLight} alt="Orbyt" className="h-auto w-28" />
@@ -27,7 +27,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 
         <div className="relative flex flex-1 flex-col items-center justify-center py-10">
           <div className="relative mb-10 flex size-80 items-center justify-center rounded-[2.5rem] border border-foreground/10 bg-foreground/5 shadow-2xl shadow-black/10">
-            <div className="absolute inset-5 rounded-[2rem] border border-foreground/8" />
+            <div className="absolute inset-5 rounded-4xl border border-foreground/8" />
             <div className="absolute -top-3 right-8 size-6 rounded-full bg-primary shadow-lg shadow-primary/40" />
             <div className="absolute bottom-8 -left-3 size-3 rounded-full bg-accent" />
             <img
@@ -82,5 +82,5 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
     </main>
-  )
+  );
 }

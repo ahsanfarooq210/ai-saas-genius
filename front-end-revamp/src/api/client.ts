@@ -2,7 +2,6 @@ import axios, {
   type AxiosError,
   type InternalAxiosRequestConfig,
 } from "axios";
-import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, getCookie } from "./cookies";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -18,25 +17,8 @@ const AUTH_ENDPOINTS_WITHOUT_REFRESH = [
   "/api/v1/auth/logout",
 ];
 
-const SAFE_METHODS = new Set(["get", "head", "options"]);
-
 interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
-}
-
-function attachCsrfHeader(
-  config: InternalAxiosRequestConfig,
-): InternalAxiosRequestConfig {
-  const method = config.method?.toLowerCase();
-  if (!method || SAFE_METHODS.has(method)) {
-    return config;
-  }
-
-  const csrfToken = getCookie(CSRF_COOKIE_NAME);
-  if (csrfToken) {
-    config.headers.set(CSRF_HEADER_NAME, csrfToken);
-  }
-  return config;
 }
 
 export const apiClient = axios.create({
@@ -50,9 +32,6 @@ const refreshClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
 });
-
-apiClient.interceptors.request.use(attachCsrfHeader);
-refreshClient.interceptors.request.use(attachCsrfHeader);
 
 let pendingRefresh: Promise<void> | null = null;
 

@@ -1,16 +1,14 @@
 import {
-  ChartBar,
   Gauge,
-  Gear,
+  Plus,
   Sparkle,
-  Square,
   Stack,
 } from '@phosphor-icons/react'
+import { NavLink, useLocation } from 'react-router-dom'
 
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -21,19 +19,20 @@ import {
 } from '@/components/ui/sidebar'
 
 const navItems = [
-  { title: 'Overview', icon: Gauge, isActive: true },
-  { title: 'Projects', icon: Stack, isActive: false },
-  { title: 'Analytics', icon: ChartBar, isActive: false },
-  { title: 'Components', icon: Square, isActive: false },
+  { title: 'Overview', icon: Gauge, href: '/dashboard', exact: true },
+  { title: 'New architecture', icon: Plus, href: '/dashboard/new', exact: true },
+  { title: 'Projects', icon: Stack, href: '/dashboard/projects', exact: false },
 ]
 
 export function AppSidebar() {
+  const { pathname } = useLocation()
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" render={<a href="/" />}>
+            <SidebarMenuButton size="lg" render={<NavLink to="/dashboard" />}>
               <div className="flex size-6 items-center justify-center rounded-none bg-primary text-primary-foreground">
                 <Sparkle weight="fill" className="size-3.5" />
               </div>
@@ -50,9 +49,9 @@ export function AppSidebar() {
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
-                    isActive={item.isActive}
+                    isActive={item.exact ? pathname === item.href : pathname.startsWith(item.href)}
                     tooltip={item.title}
-                    render={<a href="#" />}
+                    render={<NavLink to={item.href} />}
                   >
                     <item.icon />
                     <span>{item.title}</span>
@@ -63,16 +62,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton tooltip="Settings" render={<a href="#" />}>
-              <Gear />
-              <span>Settings</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
     </Sidebar>
   )
 }

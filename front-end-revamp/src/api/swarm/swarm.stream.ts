@@ -1,4 +1,3 @@
-import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, getCookie } from "../cookies";
 import type {
   SwarmResumeRequest,
   SwarmRunRequest,
@@ -49,15 +48,12 @@ async function consumeSSE(
   handlers: SwarmStreamHandlers,
   signal: AbortSignal,
 ): Promise<void> {
-  const csrfToken = getCookie(CSRF_COOKIE_NAME);
-
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
-      ...(csrfToken ? { [CSRF_HEADER_NAME]: csrfToken } : {}),
     },
     body: JSON.stringify(body),
     signal,

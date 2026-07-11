@@ -37,7 +37,7 @@ app.add_middleware(
     allow_origins=settings.cors_allowed_origins_list(),
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 app.add_middleware(JWTAuthMiddleware)
 app.include_router(api_router, prefix="/api/v1")
