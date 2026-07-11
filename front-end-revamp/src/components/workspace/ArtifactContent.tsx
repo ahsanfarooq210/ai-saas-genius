@@ -17,6 +17,16 @@ function resolveArtifactUrl(url: string): string {
   }
 }
 
+function artifactRequestCredentials(url: string): RequestCredentials {
+  try {
+    return new URL(url).origin === new URL(API_BASE_URL).origin
+      ? "include"
+      : "omit";
+  } catch {
+    return "include";
+  }
+}
+
 export function ArtifactContent({
   url,
   storageKey,
@@ -41,8 +51,9 @@ export function ArtifactContent({
   useEffect(() => {
     if (cache.has(cacheKey)) return;
     const controller = new AbortController();
-    void fetch(resolveArtifactUrl(url), {
-      credentials: "include",
+    const resolvedUrl = resolveArtifactUrl(url);
+    void fetch(resolvedUrl, {
+      credentials: artifactRequestCredentials(resolvedUrl),
       signal: controller.signal,
     })
       .then((response) => {
