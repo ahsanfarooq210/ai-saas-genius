@@ -1,7 +1,11 @@
-import axios, {
-  type AxiosError,
-  type InternalAxiosRequestConfig,
-} from "axios";
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
+
+import {
+  clearAccessToken,
+  getAccessToken,
+  setAccessToken,
+} from "@/api/auth/access-token";
+import { shouldRedirectToLogin } from "@/features/auth/auth-navigation";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -26,6 +30,14 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
+apiClient.interceptors.request.use((config) => {
+  const token = getAccessToken();
+  if (token) {
+    config.headers.set("Authorization", `Bearer ${token}`);
+  }
+  return config;
+});
+
 // Dedicated instance for refresh calls so its own 401s never re-enter the
 // response interceptor below and cause an infinite refresh loop.
 const refreshClient = axios.create({
@@ -35,10 +47,20 @@ const refreshClient = axios.create({
 
 let pendingRefresh: Promise<void> | null = null;
 
-async function refreshSession(): Promise<void> {
+export async function refreshSession(): Promise<void> {
   // No body needed: the refreshToken cookie is httpOnly and scoped to this
   // path, so the browser attaches it automatically.
-  await refreshClient.post("/api/v1/auth/refresh");
+  const { data } = await refreshClient.post<{ access_token: string }>(
+    "/api/v1/auth/refresh",
+  );
+  setAccessToken(data.access_token);
+}
+
+export async function refreshAuthSession(): Promise<void> {
+  pendingRefresh ??= refreshSession().finally(() => {
+    pendingRefresh = null;
+  });
+  return pendingRefresh;
 }
 
 apiClient.interceptors.response.use(
@@ -50,21 +72,30 @@ apiClient.interceptors.response.use(
       originalRequest?.url?.includes(path),
     );
 
-    if (status !== 401 || !originalRequest || originalRequest._retry || isAuthEndpoint) {
+    if (
+      status !== 401 ||
+      !originalRequest ||
+      originalRequest._retry ||
+      isAuthEndpoint
+    ) {
       return Promise.reject(error);
     }
 
     originalRequest._retry = true;
 
     try {
-      pendingRefresh ??= refreshSession().finally(() => {
-        pendingRefresh = null;
-      });
-      await pendingRefresh;
+      await refreshAuthSession();
       // The refresh response set a new accessToken cookie; the browser will
       // attach it automatically on retry.
       return apiClient(originalRequest);
     } catch (refreshError) {
+      clearAccessToken();
+      if (
+        typeof window !== "undefined" &&
+        shouldRedirectToLogin(window.location.pathname)
+      ) {
+        window.location.assign("/login");
+      }
       return Promise.reject(refreshError);
     }
   },

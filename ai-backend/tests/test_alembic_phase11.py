@@ -21,6 +21,7 @@ def test_swarm_persistence_tables_are_registered_with_base_metadata() -> None:
     assert "sessions" in Base.metadata.tables
     assert "debate_logs" in Base.metadata.tables
     assert "session_artifacts" in Base.metadata.tables
+    assert "swarm_revisions" in Base.metadata.tables
 
 
 def test_alembic_excludes_langgraph_schema_objects() -> None:
@@ -42,11 +43,13 @@ def test_phase11_migration_chains_after_existing_users_revision() -> None:
     phase11_revision = script.get_revision("001_initial_swarm_persistence")
     artifact_revision = script.get_revision("002_add_session_artifacts")
     graph_state_revision = script.get_revision("003_add_session_graph_state")
+    revisions_revision = script.get_revision("004_add_swarm_revisions")
 
     assert existing_users_revision is not None
     assert phase11_revision.down_revision == "7ff644cccf7c"
     assert artifact_revision.down_revision == "001_initial_swarm_persistence"
     assert graph_state_revision.down_revision == "002_add_session_artifacts"
+    assert revisions_revision.down_revision == "003_add_session_graph_state"
 
 
 def test_required_app_table_validation_reports_missing_tables() -> None:
@@ -70,5 +73,5 @@ def test_required_app_table_validation_passes_when_tables_exist() -> None:
 
     validate_required_app_tables(engine)
     assert REQUIRED_APP_TABLES == frozenset(
-        {"users", "sessions", "debate_logs", "session_artifacts"}
+        {"users", "sessions", "debate_logs", "session_artifacts", "swarm_revisions"}
     )

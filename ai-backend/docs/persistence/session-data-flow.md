@@ -4,13 +4,14 @@ This document explains the complete flow for saving session data in the database
 
 ## Tables
 
-The user-facing session result is stored across three app-managed tables.
+The user-facing session result and its revision history are stored across four app-managed tables.
 
 | Table | Purpose |
 |-------|---------|
 | `sessions` | one row per `thread_id`; run status, counts, final graph-state projection |
 | `session_artifacts` | final generated diagram/doc artifact metadata |
 | `debate_logs` | final reviewer feedback entries |
+| `swarm_revisions` | per-version instruction, status, timestamps, and complete successful result state |
 
 Raw Mermaid and Markdown content is stored in the artifact store. The database stores artifact metadata and URLs.
 
@@ -18,7 +19,7 @@ Raw Mermaid and Markdown content is stored in the artifact store. The database s
 
 `sessions` stores:
 
-- identity and status: `thread_id`, `requirement`, `status`, `created_at`, `completed_at`
+- identity and status: `thread_id`, `requirement`, `status`, `current_revision`, `created_at`, `completed_at`
 - counts: `complexity`, `diagram_count`, `doc_count`
 - architecture result: `architecture_draft`, `architecture_json`, `component_list`, `current_architecture_mermaid`
 - plans: `diagram_plan`, `doc_plan`
@@ -97,6 +98,14 @@ GET /api/v1/swarm/sessions/{thread_id}
 
 If the stream fails, the service logs the backend traceback, marks the session failed, and emits an SSE `error` event.
 
+## Revision flow
+
+`POST /api/v1/swarm/revise` and `/revise/stream` reserve the next revision number under a session-row lock. The service rejects unknown sessions and sessions already marked `running`.
+
+The new graph input is built from the latest successful session/artifact/debate projection. It keeps the original requirement and existing architecture but resets supervisor completion and reviewer state, then forces the first route through `architect_graph` with `revision_pending=true`.
+
+On success, `_mark_session_done(...)` atomically replaces the current session projection and marks the reserved revision `done` with the complete final state. On failure, only the revision/session statuses change; `current_revision`, architecture columns, artifact rows, and debate rows remain on the preceding successful version.
+
 ## Blocking resume flow
 
 Endpoint:
@@ -153,6 +162,7 @@ It writes:
 4. final graph-state projection columns
 5. fresh debate log rows
 6. fresh artifact rows
+7. the successful `swarm_revisions.result_state` and `sessions.current_revision`
 
 Before inserting debate logs and artifacts, it deletes existing rows for the same `thread_id`. This makes rerun/resume finalization replace the previous final result instead of duplicating rows.
 
@@ -197,13 +207,12 @@ Use `/state` for checkpoint/runtime inspection. Use `/sessions` for final result
 
 ## Existing rows after migrations
 
-Migration `003_add_session_graph_state.py` adds nullable graph-state columns to `sessions`.
+Migration `003_add_session_graph_state.py` adds nullable graph-state columns to `sessions`. Migration `004_add_swarm_revisions.py` adds `current_revision` and revision history.
 
-Old rows can still be read. Missing values are returned as empty defaults by the service response. Those rows get full graph-state fields after the next successful run or resume for the same `thread_id`.
+Existing completed rows are marked as revision 1. Their full baseline revision snapshot is lazily materialized from the current app-table projection when history or the first revision is requested.
 
 ## Related docs
 
 - [checkpointer-postgres-alembic.md](checkpointer-postgres-alembic.md)
 - [`../graphs/overview.md`](../graphs/overview.md)
 - [`../current/streaming.md`](../current/streaming.md)
-

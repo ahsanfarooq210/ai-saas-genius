@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -16,14 +17,30 @@ from app.agent.run import build_checkpoint_payload, swarm_config
 from app.agent.state.schema import GlobalSwarmState
 from app.agent.streaming import normalize_stream_chunk
 from app.core.langfuse import swarm_config_with_tracing, swarm_trace
-from app.models.swarm import SwarmDebateLog, SwarmSession, SwarmSessionArtifact
+from app.models.swarm import (
+    SwarmDebateLog,
+    SwarmRevision,
+    SwarmSession,
+    SwarmSessionArtifact,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class UnknownSwarmSessionError(ValueError):
+    pass
+
+
+class SwarmSessionBusyError(RuntimeError):
+    pass
 
 
 def _empty_swarm_state(task_requirement: str, thread_id: str) -> GlobalSwarmState:
     return {
         "task_requirement": task_requirement,
+        "revision_number": 1,
+        "revision_instruction": "",
+        "revision_pending": False,
         "architecture_draft": "",
         "architecture_json": {},
         "component_list": [],
@@ -114,6 +131,48 @@ class SwarmGraphService:
             trace.set_result(result)
             return result
 
+    async def revise(
+        self,
+        instruction: str,
+        thread_id: str,
+        *,
+        db: Session,
+    ) -> dict[str, Any]:
+        revision_input, revision_number = await run_in_threadpool(
+            self._start_revision,
+            db,
+            thread_id,
+            instruction,
+        )
+        with swarm_trace(
+            "swarm.revise",
+            thread_id,
+            task_requirement=instruction,
+        ) as trace:
+            try:
+                result = await self._graph.ainvoke(
+                    revision_input,
+                    config=swarm_config_with_tracing(
+                        swarm_config(thread_id),
+                        thread_id,
+                        "swarm.revise",
+                    ),
+                )
+                result.setdefault("revision_number", revision_number)
+                result.setdefault("revision_instruction", instruction)
+            except Exception as exc:
+                trace.set_error(exc)
+                await run_in_threadpool(
+                    self._mark_revision_failed,
+                    db,
+                    thread_id,
+                    revision_number,
+                )
+                raise
+            await run_in_threadpool(self._mark_session_done, db, thread_id, result)
+            trace.set_result(result)
+            return result
+
     async def stream_run(
         self,
         task_requirement: str,
@@ -156,6 +215,28 @@ class SwarmGraphService:
             db=db,
         ):
             yield event
+
+    async def stream_revise(
+        self,
+        instruction: str,
+        thread_id: str,
+        *,
+        db: Session,
+    ) -> AsyncIterator[dict[str, Any]]:
+        revision_input, revision_number = await run_in_threadpool(
+            self._start_revision,
+            db,
+            thread_id,
+            instruction,
+        )
+        return self._stream_graph(
+            revision_input,
+            thread_id,
+            operation="swarm.revise.stream",
+            task_requirement=instruction,
+            db=db,
+            revision_number=revision_number,
+        )
 
     async def get_checkpoint(self, thread_id: str) -> dict[str, Any]:
         snapshot = await self._graph.aget_state(swarm_config(thread_id))
@@ -206,9 +287,23 @@ class SwarmGraphService:
             .order_by(SwarmDebateLog.iteration, SwarmDebateLog.id)
             .all()
         )
+        current_revision = (
+            db.query(SwarmRevision)
+            .filter(
+                SwarmRevision.thread_id == thread_id,
+                SwarmRevision.revision_number == session.current_revision,
+            )
+            .one_or_none()
+        )
         return {
             "thread_id": session.thread_id,
             "requirement": session.requirement,
+            "revision_number": session.current_revision,
+            "latest_instruction": (
+                current_revision.instruction
+                if current_revision is not None
+                else (session.requirement if session.current_revision else "")
+            ),
             "status": session.status,
             "complexity": session.complexity,
             "diagram_count": session.diagram_count,
@@ -242,6 +337,53 @@ class SwarmGraphService:
             "generated_docs": docs,
         }
 
+    def list_revisions(self, thread_id: str, db: Session) -> dict[str, Any]:
+        session = db.get(SwarmSession, thread_id)
+        if session is None:
+            raise UnknownSwarmSessionError(thread_id)
+        self._ensure_baseline_revision(db, session)
+        db.commit()
+        revisions = (
+            db.query(SwarmRevision)
+            .filter(SwarmRevision.thread_id == thread_id)
+            .order_by(SwarmRevision.revision_number)
+            .all()
+        )
+        return {
+            "thread_id": thread_id,
+            "current_revision": session.current_revision,
+            "revisions": [self._revision_summary(item) for item in revisions],
+        }
+
+    def get_revision(
+        self,
+        thread_id: str,
+        revision_number: int,
+        db: Session,
+    ) -> dict[str, Any]:
+        session = db.get(SwarmSession, thread_id)
+        if session is None:
+            raise UnknownSwarmSessionError(thread_id)
+        self._ensure_baseline_revision(db, session)
+        db.commit()
+        revision = (
+            db.query(SwarmRevision)
+            .filter(
+                SwarmRevision.thread_id == thread_id,
+                SwarmRevision.revision_number == revision_number,
+            )
+            .one_or_none()
+        )
+        if revision is None:
+            raise UnknownSwarmSessionError(
+                f"Unknown revision {revision_number} for thread {thread_id}"
+            )
+        return {
+            **self._revision_summary(revision),
+            "thread_id": thread_id,
+            "result": revision.result_state or {},
+        }
+
     def list_graphs(self) -> list[dict[str, str | bool]]:
         return list_swarm_graphs()
 
@@ -260,6 +402,7 @@ class SwarmGraphService:
         operation: str,
         task_requirement: str | None = None,
         db: Session | None = None,
+        revision_number: int | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         with swarm_trace(
             operation,
@@ -285,6 +428,12 @@ class SwarmGraphService:
                 if db is not None:
                     snapshot = await self._graph.aget_state(config)
                     result = dict(snapshot.values or {})
+                    if revision_number is not None:
+                        result.setdefault("revision_number", revision_number)
+                        result.setdefault(
+                            "revision_instruction",
+                            task_requirement or "",
+                        )
                     await run_in_threadpool(
                         self._mark_session_done,
                         db,
@@ -301,12 +450,28 @@ class SwarmGraphService:
             except asyncio.CancelledError:
                 trace.set_cancelled()
                 if db is not None:
-                    await run_in_threadpool(self._mark_session_failed, db, thread_id)
+                    if revision_number is None:
+                        await run_in_threadpool(self._mark_session_failed, db, thread_id)
+                    else:
+                        await run_in_threadpool(
+                            self._mark_revision_failed,
+                            db,
+                            thread_id,
+                            revision_number,
+                        )
                 raise
             except Exception as exc:
                 trace.set_error(exc)
                 if db is not None:
-                    await run_in_threadpool(self._mark_session_failed, db, thread_id)
+                    if revision_number is None:
+                        await run_in_threadpool(self._mark_session_failed, db, thread_id)
+                    else:
+                        await run_in_threadpool(
+                            self._mark_revision_failed,
+                            db,
+                            thread_id,
+                            revision_number,
+                        )
                 logger.exception("Swarm graph stream failed for thread_id=%s", thread_id)
                 yield {
                     "event": "error",
@@ -316,6 +481,174 @@ class SwarmGraphService:
                         "message": str(exc),
                     },
                 }
+
+    @staticmethod
+    def _revision_summary(revision: SwarmRevision) -> dict[str, Any]:
+        return {
+            "revision_number": revision.revision_number,
+            "instruction": revision.instruction,
+            "status": revision.status,
+            "created_at": (
+                revision.created_at.isoformat() if revision.created_at else None
+            ),
+            "completed_at": (
+                revision.completed_at.isoformat() if revision.completed_at else None
+            ),
+        }
+
+    @staticmethod
+    def _state_from_session(db: Session, session: SwarmSession) -> dict[str, Any]:
+        artifacts = (
+            db.query(SwarmSessionArtifact)
+            .filter(SwarmSessionArtifact.thread_id == session.thread_id)
+            .order_by(SwarmSessionArtifact.id)
+            .all()
+        )
+        logs = (
+            db.query(SwarmDebateLog)
+            .filter(SwarmDebateLog.thread_id == session.thread_id)
+            .order_by(SwarmDebateLog.iteration, SwarmDebateLog.id)
+            .all()
+        )
+        diagrams = [
+            {
+                "diagram_type": item.name,
+                "component_slug": item.component_slug,
+                "storage_key": item.storage_key,
+                "url": item.url,
+                "iteration": int(item.iteration or 0),
+            }
+            for item in artifacts
+            if item.artifact_type == "diagram"
+        ]
+        docs = [
+            {
+                "title": item.name,
+                "component_slug": item.component_slug,
+                "storage_key": item.storage_key,
+                "url": item.url,
+            }
+            for item in artifacts
+            if item.artifact_type == "doc"
+        ]
+        return {
+            "task_requirement": session.requirement,
+            "revision_number": int(session.current_revision or 1),
+            "revision_instruction": "",
+            "revision_pending": False,
+            "architecture_draft": session.architecture_draft or "",
+            "architecture_json": session.architecture_json or {},
+            "component_list": session.component_list or [],
+            "current_architecture_mermaid": (
+                session.current_architecture_mermaid or ""
+            ),
+            "complexity_score": int(session.complexity or 0),
+            "diagram_plan": session.diagram_plan or [],
+            "doc_plan": session.doc_plan or [],
+            "deep_dive_notes": session.deep_dive_notes or "",
+            "generated_diagrams": diagrams,
+            "thread_id": session.thread_id,
+            "generated_docs": docs,
+            "docs_complete": bool(session.docs_complete),
+            "iteration_count": int(session.iteration_count or 0),
+            "next_agent": session.next_agent or "",
+            "scalability_feedback": session.scalability_feedback or "",
+            "security_feedback": session.security_feedback or "",
+            "debate_logs": [
+                {
+                    "agent": item.agent,
+                    "feedback": item.feedback,
+                    "status": item.status,
+                    "iteration": item.iteration,
+                }
+                for item in logs
+            ],
+        }
+
+    @classmethod
+    def _ensure_baseline_revision(
+        cls,
+        db: Session,
+        session: SwarmSession,
+    ) -> None:
+        if session.current_revision <= 0:
+            return
+        existing = (
+            db.query(SwarmRevision.id)
+            .filter(
+                SwarmRevision.thread_id == session.thread_id,
+                SwarmRevision.revision_number == session.current_revision,
+            )
+            .first()
+        )
+        if existing is not None:
+            return
+        completed_at = session.completed_at or datetime.now(timezone.utc)
+        db.add(
+            SwarmRevision(
+                thread_id=session.thread_id,
+                revision_number=session.current_revision,
+                instruction=session.requirement,
+                status="done",
+                result_state=cls._state_from_session(db, session),
+                created_at=session.created_at,
+                completed_at=completed_at,
+            )
+        )
+        db.flush()
+
+    @classmethod
+    def _start_revision(
+        cls,
+        db: Session,
+        thread_id: str,
+        instruction: str,
+    ) -> tuple[GlobalSwarmState, int]:
+        session = (
+            db.query(SwarmSession)
+            .filter(SwarmSession.thread_id == thread_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if session is None or session.current_revision <= 0:
+            raise UnknownSwarmSessionError(thread_id)
+        if session.status == "running":
+            raise SwarmSessionBusyError(thread_id)
+
+        cls._ensure_baseline_revision(db, session)
+        previous_state = cls._state_from_session(db, session)
+        latest_number = (
+            db.query(func.max(SwarmRevision.revision_number))
+            .filter(SwarmRevision.thread_id == thread_id)
+            .scalar()
+            or session.current_revision
+        )
+        revision_number = int(latest_number) + 1
+        db.add(
+            SwarmRevision(
+                thread_id=thread_id,
+                revision_number=revision_number,
+                instruction=instruction,
+                status="running",
+            )
+        )
+        session.status = "running"
+        session.completed_at = None
+        db.commit()
+
+        revision_input = {
+            **previous_state,
+            "revision_number": revision_number,
+            "revision_instruction": instruction,
+            "revision_pending": True,
+            "docs_complete": False,
+            "iteration_count": 0,
+            "next_agent": "",
+            "scalability_feedback": "",
+            "security_feedback": "",
+            "debate_logs": [],
+        }
+        return revision_input, revision_number  # type: ignore[return-value]
 
     @staticmethod
     def _mark_session_running(
@@ -354,6 +687,29 @@ class SwarmGraphService:
             db.commit()
 
     @staticmethod
+    def _mark_revision_failed(
+        db: Session,
+        thread_id: str,
+        revision_number: int,
+    ) -> None:
+        revision = (
+            db.query(SwarmRevision)
+            .filter(
+                SwarmRevision.thread_id == thread_id,
+                SwarmRevision.revision_number == revision_number,
+            )
+            .one_or_none()
+        )
+        if revision is not None:
+            revision.status = "failed"
+            revision.completed_at = datetime.now(timezone.utc)
+        session = db.get(SwarmSession, thread_id)
+        if session is not None:
+            session.status = "failed"
+            session.completed_at = datetime.now(timezone.utc)
+        db.commit()
+
+    @staticmethod
     def _mark_session_done(
         db: Session,
         thread_id: str,
@@ -382,6 +738,10 @@ class SwarmGraphService:
         session.next_agent = result.get("next_agent") or ""
         session.scalability_feedback = result.get("scalability_feedback") or ""
         session.security_feedback = result.get("security_feedback") or ""
+        revision_number = int(
+            result.get("revision_number") or session.current_revision or 1
+        )
+        session.current_revision = revision_number
 
         db.query(SwarmDebateLog).filter(
             SwarmDebateLog.thread_id == thread_id,
@@ -431,4 +791,25 @@ class SwarmGraphService:
                     iteration=None,
                 )
             )
+        revision = (
+            db.query(SwarmRevision)
+            .filter(
+                SwarmRevision.thread_id == thread_id,
+                SwarmRevision.revision_number == revision_number,
+            )
+            .one_or_none()
+        )
+        if revision is None:
+            revision = SwarmRevision(
+                thread_id=thread_id,
+                revision_number=revision_number,
+                instruction=(
+                    result.get("revision_instruction") or session.requirement
+                ),
+                status="done",
+            )
+            db.add(revision)
+        revision.status = "done"
+        revision.result_state = dict(result)
+        revision.completed_at = datetime.now(timezone.utc)
         db.commit()

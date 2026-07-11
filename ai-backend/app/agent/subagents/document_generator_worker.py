@@ -71,6 +71,8 @@ def document_generator_node(state: DocWorkerState) -> dict:
         f"Document to write: {state['doc_filename']}\n"
         f"Component slug: {state['component_slug'] or '(overview / cross-cutting)'}\n\n"
         f"System requirement: {state['task_requirement']}\n\n"
+        "Latest revision instruction: "
+        f"{state.get('revision_instruction') or '(initial generation)'}\n\n"
         f"Architecture:\n{state['architecture_json']}\n\n"
         f"Available diagrams:\n{diagram_refs or '(none)'}\n\n"
         f"Paired diagram for this document: {paired_diagram_path or 'none'}"
@@ -87,6 +89,7 @@ def document_generator_node(state: DocWorkerState) -> dict:
     title = title_from_filename(state["doc_filename"])
     stored = artifact_store.upload_doc(
         thread_id=state["thread_id"],
+        revision_number=state.get("revision_number", 1),
         doc_filename=state["doc_filename"],
         content=content,
     )

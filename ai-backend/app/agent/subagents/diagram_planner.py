@@ -18,6 +18,8 @@ def diagram_planner_node(state: ArchitectGraphState) -> list[Send]:
                 diagram_type=entry,
                 component_slug=_slug_from_entry(entry),
                 task_requirement=state["task_requirement"],
+                revision_number=int(state.get("revision_number", 1)),
+                revision_instruction=state.get("revision_instruction") or "",
                 architecture_json=state["architecture_json"],
                 draft_mermaid="",
                 linter_errors=[],

@@ -9,6 +9,9 @@ from app.agent.subagents.supervisor_router import MAX_ITERATIONS, _route, superv
 def _base_state(**overrides: Any) -> GlobalSwarmState:
     state: dict[str, Any] = {
         "task_requirement": "Design a URL shortener",
+        "revision_number": 1,
+        "revision_instruction": "",
+        "revision_pending": False,
         "architecture_draft": "",
         "architecture_json": {},
         "component_list": [],
@@ -33,6 +36,18 @@ def _base_state(**overrides: Any) -> GlobalSwarmState:
 
 def test_route_empty_component_list_to_architect() -> None:
     assert _route(_base_state()) == "architect_graph"
+
+
+def test_pending_revision_routes_to_architect_with_existing_outputs() -> None:
+    state = _base_state(
+        revision_pending=True,
+        component_list=["API Gateway"],
+        docs_complete=True,
+        scalability_feedback="STATUS: APPROVED",
+        security_feedback="STATUS: APPROVED",
+    )
+
+    assert _route(state) == "architect_graph"
 
 
 def test_route_architecture_ready_docs_incomplete_to_doc_graph() -> None:

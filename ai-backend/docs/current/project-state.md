@@ -8,7 +8,7 @@ Live backend behavior as implemented in code. If this file disagrees with the re
 
 ## What this service does
 
-FastAPI backend for a LangGraph **architecture swarm**. A client submits a design requirement; the graph returns architecture JSON, Mermaid diagrams, Markdown docs, and optional reviewer feedback. Runs are checkpointed by `thread_id`.
+FastAPI backend for a LangGraph **architecture swarm**. A client submits a design requirement; the graph returns architecture JSON, Mermaid diagrams, Markdown docs, and optional reviewer feedback. Runs are checkpointed by `thread_id`, and later prompts can revise the latest successful architecture on that thread.
 
 ---
 
@@ -34,7 +34,7 @@ FastAPI backend for a LangGraph **architecture swarm**. A client submits a desig
 
 All `/api/v1/swarm/*` routes require a bearer access token issued by `/api/v1/auth/login`, `/api/v1/auth/signin`, or `/api/v1/auth/signup`. See [authentication.md](authentication.md) for request examples.
 
-1. `POST /api/v1/swarm/run` or `resume` in `swarm.py`
+1. `POST /api/v1/swarm/run`, `revise`, or `resume` in `swarm.py`
 2. `SwarmGraphService` writes a `sessions` row as `running`
 3. `SwarmGraphService` invokes the compiled supervisor graph with `_empty_swarm_state`
 4. Graph runs until `END` or iteration cap
@@ -43,7 +43,7 @@ All `/api/v1/swarm/*` routes require a bearer access token issued by `/api/v1/au
 
 When `LANGFUSE_TRACING_ENABLED=true` and both Langfuse API keys are present, `SwarmGraphService` wraps run/resume/stream graph calls in root Langfuse spans and passes the Langfuse LangChain callback into the LangGraph config. Keys alone do not enable tracing. Each `thread_id` is used as the Langfuse `session_id`; root span output is summarized to counts/status instead of storing the full graph state.
 
-Streaming variants (`POST /api/v1/swarm/run/stream`, `POST /api/v1/swarm/resume/stream`) use the same graph/service path but return SSE progress events instead of the final result body. After `event: done`, clients fetch durable state/session data by `thread_id`. See [streaming.md](streaming.md).
+Streaming variants (`POST /api/v1/swarm/run/stream`, `POST /api/v1/swarm/revise/stream`, `POST /api/v1/swarm/resume/stream`) use the same graph/service path but return SSE progress events instead of the final result body. After `event: done`, clients fetch durable state/session data by `thread_id`. See [streaming.md](streaming.md).
 
 ---
 
@@ -97,6 +97,7 @@ Important fields:
 | Field | Notes |
 |-------|--------|
 | `task_requirement` | User prompt; set at init |
+| `revision_number`, `revision_instruction`, `revision_pending` | Follow-up version, new instruction, and architect routing gate |
 | `architecture_json`, `component_list` | From lead architect |
 | `diagram_plan`, `doc_plan` | From complexity analyzer |
 | `generated_diagrams`, `generated_docs` | **Plain lists** — replaced when subgraphs return |
@@ -131,10 +132,14 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 | `GET` | `/api/v1/auth/me` |
 | `POST` | `/api/v1/swarm/run` |
 | `POST` | `/api/v1/swarm/run/stream` |
+| `POST` | `/api/v1/swarm/revise` |
+| `POST` | `/api/v1/swarm/revise/stream` |
 | `POST` | `/api/v1/swarm/resume` |
 | `POST` | `/api/v1/swarm/resume/stream` |
 | `GET` | `/api/v1/swarm/state/{thread_id}` |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}` |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions` |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions/{revision_number}` |
 | `GET` | `/api/v1/swarm/graphs` |
 | `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` |
 | `GET` | `/health` |
@@ -148,6 +153,7 @@ For login, signup, refresh, and authenticated request examples, see [authenticat
 `/api/v1/swarm/sessions/{thread_id}` is the app-table result view. It returns the `sessions` row plus persisted final graph fields (`architecture_json`, `component_list`, Mermaid summary, plans, reviewer feedback, supervisor state), final artifact rows, and mirrored debate logs. `/api/v1/swarm/state/{thread_id}` remains the checkpoint-backed state view.
 
 For the full persistence flow, see [../persistence/session-data-flow.md](../persistence/session-data-flow.md).
+For follow-up request examples and version semantics, see [iterative-revisions.md](iterative-revisions.md).
 
 ---
 
@@ -185,6 +191,7 @@ LLM prompts, model names, token usage, and nested graph observations are capture
 - LLM reviewers with `REJECTED` → architect rerun
 - Subgraph artifact reset and parent plain-list merge (2026-05-30)
 - SSE progress streaming for run/resume with sanitized graph events
+- Iterative follow-up revisions with latest-successful promotion and history
 - Session-table final graph-state projection for durable result reads
 - JWT signup/login/signin/refresh/me endpoints and protected `/api/v1/swarm/*` routes
 - Optional Langfuse tracing for swarm run/resume/stream operations

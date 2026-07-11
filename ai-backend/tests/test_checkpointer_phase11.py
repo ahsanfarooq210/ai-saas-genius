@@ -11,6 +11,7 @@ from app.db.checkpointer import (
 
 def _settings(database_url: str, *, sslmode: str | None = None) -> Settings:
     return Settings(
+        COOKIE_SECURE=False,
         DATABASE_URL=database_url,
         LANGGRAPH_POSTGRES_SSLMODE=sslmode,
         _env_file=None,

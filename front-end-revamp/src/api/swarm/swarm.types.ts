@@ -1,11 +1,12 @@
-export type SwarmRunRequest = {
-  task_requirement: string;
-  thread_id: string;
+export type ArchitectureComponent = {
+  description?: string;
+  relations?: string[];
+  [key: string]: unknown;
 };
 
-export type SwarmResumeRequest = {
-  thread_id: string;
-};
+export type SwarmRunRequest = { task_requirement: string; thread_id: string };
+export type SwarmReviseRequest = { thread_id: string; instruction: string };
+export type SwarmResumeRequest = { thread_id: string };
 
 export type Artifact = {
   artifact_type: "diagram" | "doc" | string;
@@ -40,8 +41,10 @@ export type DebateLog = {
 
 export type SwarmRunResponse = {
   task_requirement: string;
+  revision_number: number;
+  latest_instruction: string;
   architecture_draft: string;
-  architecture_json: Record<string, unknown>;
+  architecture_json: Record<string, ArchitectureComponent>;
   component_list: string[];
   current_architecture_mermaid: string;
   complexity_score: number;
@@ -59,30 +62,14 @@ export type SwarmRunResponse = {
   debate_logs: DebateLog[];
 };
 
-export type CheckpointDiagram = {
-  diagram_type: string;
-  component_slug: string;
-  valid: boolean;
-  storage_key: string;
-  url: string;
-  iteration: number;
-};
-
-export type CheckpointDoc = {
-  title: string;
-  component_slug: string;
-  storage_key: string;
-  url: string;
-};
-
-export type CheckpointDebateLog = {
-  agent: string;
-  status: string;
-  iteration: number;
-};
+export type CheckpointDiagram = DiagramResult & { valid: boolean };
+export type CheckpointDoc = DocResult;
+export type CheckpointDebateLog = Omit<DebateLog, "feedback">;
 
 export type SwarmCheckpointResponse = {
   thread_id: string;
+  revision_number: number;
+  latest_instruction: string;
   next: string[];
   component_list: string[];
   complexity_score: number;
@@ -103,12 +90,14 @@ export type SwarmCheckpointResponse = {
 export type SwarmSessionResponse = {
   thread_id: string;
   requirement: string;
+  revision_number: number;
+  latest_instruction: string;
   status: string;
   complexity: number | null;
   diagram_count: number | null;
   doc_count: number | null;
   architecture_draft: string;
-  architecture_json: Record<string, unknown>;
+  architecture_json: Record<string, ArchitectureComponent>;
   component_list: string[];
   current_architecture_mermaid: string;
   diagram_plan: string[];
@@ -126,17 +115,31 @@ export type SwarmSessionResponse = {
   generated_docs: Artifact[];
 };
 
+export type SwarmRevisionStatus = "running" | "done" | "failed";
+export type SwarmRevisionSummary = {
+  revision_number: number;
+  instruction: string;
+  status: SwarmRevisionStatus;
+  created_at: string | null;
+  completed_at: string | null;
+};
+export type SwarmRevisionListResponse = {
+  thread_id: string;
+  current_revision: number;
+  revisions: SwarmRevisionSummary[];
+};
+export type SwarmRevisionDetail = SwarmRevisionSummary & {
+  thread_id: string;
+  result: Record<string, unknown>;
+};
+
 export type SwarmGraphInfo = {
   graph_id: string;
   name: string;
   description: string;
   supports_xray: boolean;
 };
-
-export type SwarmGraphListResponse = {
-  graphs: SwarmGraphInfo[];
-};
-
+export type SwarmGraphListResponse = { graphs: SwarmGraphInfo[] };
 export type SwarmGraphMermaidResponse = {
   graph_id: string;
   mermaid: string;
@@ -150,12 +153,8 @@ export type SwarmProgressPhase =
   | "documentation"
   | "review"
   | "unknown";
-
 export type SwarmProgressType =
-  | "task_started"
-  | "task_completed"
-  | "state_update";
-
+  "task_started" | "task_completed" | "state_update";
 export type SwarmProgressEvent = {
   thread_id: string;
   type: SwarmProgressType;
@@ -165,18 +164,12 @@ export type SwarmProgressEvent = {
   iteration_count: number | null;
   payload: Record<string, unknown>;
 };
-
-export type SwarmDoneEvent = {
-  thread_id: string;
-  status: "done";
-};
-
+export type SwarmDoneEvent = { thread_id: string; status: "done" };
 export type SwarmErrorEvent = {
   thread_id: string;
   status: "failed";
   message: string;
 };
-
 export type SwarmStreamHandlers = {
   onProgress?: (event: SwarmProgressEvent) => void;
   onDone?: (event: SwarmDoneEvent) => void;

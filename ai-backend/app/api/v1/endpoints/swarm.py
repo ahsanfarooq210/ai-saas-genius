@@ -13,10 +13,17 @@ from app.schemas.swarm import (
     SwarmCheckpointResponse,
     SwarmGraphListResponse,
     SwarmGraphMermaidResponse,
+    SwarmReviseRequest,
+    SwarmRevisionListResponse,
+    SwarmRevisionResponse,
     SwarmResumeRequest,
     SwarmRunRequest,
     SwarmRunResponse,
     SwarmSessionResponse,
+)
+from app.services.swarm_graph_service import (
+    SwarmSessionBusyError,
+    UnknownSwarmSessionError,
 )
 
 router = APIRouter(prefix="/swarm")
@@ -89,6 +96,52 @@ async def stream_resume_swarm_graph(
     return _streaming_response(service.stream_resume(body.thread_id, db=db))
 
 
+@router.post("/revise", response_model=SwarmRunResponse)
+async def revise_swarm_graph(
+    body: SwarmReviseRequest,
+    service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
+) -> SwarmRunResponse:
+    try:
+        result = await service.revise(body.instruction, body.thread_id, db=db)
+    except UnknownSwarmSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown thread_id: {body.thread_id}",
+        ) from None
+    except SwarmSessionBusyError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Thread is already running: {body.thread_id}",
+        ) from None
+    return SwarmRunResponse.model_validate(result)
+
+
+@router.post("/revise/stream")
+async def stream_revise_swarm_graph(
+    body: SwarmReviseRequest,
+    service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    try:
+        events = await service.stream_revise(
+            body.instruction,
+            body.thread_id,
+            db=db,
+        )
+    except UnknownSwarmSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown thread_id: {body.thread_id}",
+        ) from None
+    except SwarmSessionBusyError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Thread is already running: {body.thread_id}",
+        ) from None
+    return _streaming_response(events)
+
+
 @router.get("/state/{thread_id}", response_model=SwarmCheckpointResponse)
 async def get_swarm_checkpoint(
     thread_id: str,
@@ -112,6 +165,52 @@ async def get_swarm_session(
             detail=f"Unknown thread_id: {thread_id}",
         ) from None
     return SwarmSessionResponse.model_validate(session_payload)
+
+
+@router.get(
+    "/sessions/{thread_id}/revisions",
+    response_model=SwarmRevisionListResponse,
+)
+async def list_swarm_revisions(
+    thread_id: str,
+    service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
+) -> SwarmRevisionListResponse:
+    try:
+        payload = await run_in_threadpool(service.list_revisions, thread_id, db)
+    except UnknownSwarmSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown thread_id: {thread_id}",
+        ) from None
+    return SwarmRevisionListResponse.model_validate(payload)
+
+
+@router.get(
+    "/sessions/{thread_id}/revisions/{revision_number}",
+    response_model=SwarmRevisionResponse,
+)
+async def get_swarm_revision(
+    thread_id: str,
+    revision_number: int,
+    service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
+) -> SwarmRevisionResponse:
+    try:
+        payload = await run_in_threadpool(
+            service.get_revision,
+            thread_id,
+            revision_number,
+            db,
+        )
+    except UnknownSwarmSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Unknown revision {revision_number} for thread_id: {thread_id}"
+            ),
+        ) from None
+    return SwarmRevisionResponse.model_validate(payload)
 
 
 @router.get("/graphs", response_model=SwarmGraphListResponse)

@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class SwarmRunRequest(BaseModel):
@@ -10,6 +10,11 @@ class SwarmRunRequest(BaseModel):
 
 class SwarmResumeRequest(BaseModel):
     thread_id: str = Field(..., min_length=1)
+
+
+class SwarmReviseRequest(BaseModel):
+    thread_id: str = Field(..., min_length=1)
+    instruction: str = Field(..., min_length=1)
 
 
 class SwarmGraphInfo(BaseModel):
@@ -67,6 +72,8 @@ class DebateLogEntryResponse(BaseModel):
 
 class SwarmCheckpointResponse(BaseModel):
     thread_id: str
+    revision_number: int = 1
+    latest_instruction: str = ""
     next: tuple[str, ...] = Field(
         default_factory=tuple,
         description="Next node(s) to run; empty means the graph reached END",
@@ -114,6 +121,8 @@ class SessionArtifactResponse(BaseModel):
 class SwarmSessionResponse(BaseModel):
     thread_id: str
     requirement: str
+    revision_number: int = 0
+    latest_instruction: str = ""
     status: str
     complexity: int | None = None
     diagram_count: int | None = None
@@ -135,6 +144,25 @@ class SwarmSessionResponse(BaseModel):
     completed_at: str | None = None
     generated_diagrams: list[SessionArtifactResponse] = Field(default_factory=list)
     generated_docs: list[SessionArtifactResponse] = Field(default_factory=list)
+
+
+class SwarmRevisionSummary(BaseModel):
+    revision_number: int
+    instruction: str
+    status: Literal["running", "done", "failed"]
+    created_at: str | None = None
+    completed_at: str | None = None
+
+
+class SwarmRevisionListResponse(BaseModel):
+    thread_id: str
+    current_revision: int
+    revisions: list[SwarmRevisionSummary] = Field(default_factory=list)
+
+
+class SwarmRevisionResponse(SwarmRevisionSummary):
+    thread_id: str
+    result: dict[str, Any] = Field(default_factory=dict)
 
 
 class SwarmStreamProgressEvent(BaseModel):
@@ -171,6 +199,11 @@ class SwarmRunResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     task_requirement: str
+    revision_number: int = 1
+    latest_instruction: str = Field(
+        default="",
+        validation_alias=AliasChoices("latest_instruction", "revision_instruction"),
+    )
     architecture_draft: str
     architecture_json: dict[str, Any] = Field(
         default_factory=dict,

@@ -28,6 +28,9 @@ from app.agent.subagents.reviewer_common import append_debate_log
 def _base_global_state(**overrides: Any) -> GlobalSwarmState:
     state: dict[str, Any] = {
         "task_requirement": "Design a secure publishing platform",
+        "revision_number": 1,
+        "revision_instruction": "",
+        "revision_pending": False,
         "architecture_draft": "",
         "architecture_json": {},
         "component_list": [],
@@ -78,6 +81,8 @@ def _architect_plan_workers(state: ArchitectGraphState) -> list[Send]:
                 diagram_type=entry,
                 component_slug=entry.removeprefix("component-") if entry.startswith("component-") else "",
                 task_requirement=state["task_requirement"],
+                revision_number=state.get("revision_number", 1),
+                revision_instruction=state.get("revision_instruction", ""),
                 architecture_json=state["architecture_json"],
                 draft_mermaid="",
                 linter_errors=[],
@@ -97,7 +102,8 @@ def _diagram_worker_node(state: DiagramWorkerState) -> dict[str, list[DiagramEnt
                 diagram_type=state["diagram_type"],
                 component_slug=state["component_slug"],
                 storage_key=(
-                    f"swarm-artifacts/{state['thread_id']}/diagrams/"
+                    f"swarm-artifacts/{state['thread_id']}/revisions/"
+                    f"{state['revision_number']}/diagrams/"
                     f"iter{state['iteration']}_{state['diagram_type']}.mmd"
                 ),
                 url=(
@@ -124,6 +130,8 @@ def _doc_plan_workers(state: DocGraphState) -> list[Send]:
                 doc_filename=filename,
                 component_slug="" if filename == "overview.md" else filename.removesuffix(".md"),
                 task_requirement=state["task_requirement"],
+                revision_number=state.get("revision_number", 1),
+                revision_instruction=state.get("revision_instruction", ""),
                 architecture_json=state["architecture_json"],
                 generated_diagrams=state["generated_diagrams"],
                 thread_id=state["thread_id"],
@@ -140,7 +148,10 @@ def _doc_worker_node(state: DocWorkerState) -> dict[str, list[DocEntry]]:
             DocEntry(
                 title=state["doc_filename"],
                 component_slug=state["component_slug"],
-                storage_key=f"swarm-artifacts/{state['thread_id']}/docs/{state['doc_filename']}",
+                storage_key=(
+                    f"swarm-artifacts/{state['thread_id']}/revisions/"
+                    f"{state['revision_number']}/docs/{state['doc_filename']}"
+                ),
                 url=f"https://cdn.example/{state['thread_id']}/{state['doc_filename']}",
             )
         ]

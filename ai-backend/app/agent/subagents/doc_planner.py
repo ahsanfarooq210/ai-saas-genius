@@ -29,6 +29,8 @@ def doc_planner_node(state: DocGraphState) -> list[Send]:
                 doc_filename=filename,
                 component_slug=slug_from_doc_filename(filename),
                 task_requirement=state["task_requirement"],
+                revision_number=int(state.get("revision_number", 1)),
+                revision_instruction=state.get("revision_instruction") or "",
                 architecture_json=state["architecture_json"],
                 generated_diagrams=state.get("generated_diagrams") or [],
                 thread_id=state.get("thread_id") or "default",

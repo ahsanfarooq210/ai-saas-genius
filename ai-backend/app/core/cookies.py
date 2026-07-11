@@ -33,6 +33,8 @@ def set_auth_cookies(
         samesite="strict",
         path=REFRESH_TOKEN_COOKIE_PATH,
     )
+
+
 def clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(
         ACCESS_TOKEN_COOKIE,

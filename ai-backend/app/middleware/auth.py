@@ -6,12 +6,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
 from app.core.config import settings
-from app.core.cookies import (
-    ACCESS_TOKEN_COOKIE,
-)
+from app.core.cookies import ACCESS_TOKEN_COOKIE
 from app.core.security import decode_token
 from app.db.session import SessionLocal
 from app.models.user import User
+
 
 def get_access_token_from_request(request: Request) -> str | None:
     """Resolve the access token for a request.

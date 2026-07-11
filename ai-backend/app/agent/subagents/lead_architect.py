@@ -18,6 +18,10 @@ component_list must list every component name in architecture_json (same names, 
 
 current_architecture_mermaid must be a valid Mermaid flowchart (flowchart TD) showing every
 component in component_list as a node and dependency edges between them.
+
+When revision context is supplied, update the existing architecture according to the
+new instruction. Preserve every unaffected component, relationship, and design decision.
+Return the complete revised architecture, not a patch or explanation of the changes.
 """
 
 
@@ -43,7 +47,18 @@ class LeadArchitect:
             f"\n[lead_architect] drafting architecture for: {state['task_requirement']!r}"
         )
 
-        user_content = state["task_requirement"] + _rejection_context(state)
+        revision_instruction = state.get("revision_instruction", "")
+        if revision_instruction:
+            user_content = (
+                f"Original system requirement:\n{state['task_requirement']}\n\n"
+                f"Current architecture JSON:\n{state.get('architecture_json') or {}}\n\n"
+                "Current architecture Mermaid:\n"
+                f"{state.get('current_architecture_mermaid') or '(none)'}\n\n"
+                f"New revision instruction:\n{revision_instruction}"
+            )
+        else:
+            user_content = state["task_requirement"]
+        user_content += _rejection_context(state)
 
         result: ArchitectureOutput = _structured_llm.invoke(
             [
@@ -70,6 +85,7 @@ class LeadArchitect:
             "architecture_json": architecture_json,
             "component_list": component_list,
             "current_architecture_mermaid": result.current_architecture_mermaid,
+            "revision_pending": False,
         }
         if _rejection_context(state):
             update["scalability_feedback"] = ""

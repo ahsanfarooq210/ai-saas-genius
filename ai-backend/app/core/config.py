@@ -1,7 +1,7 @@
 from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,6 +49,29 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
+    @model_validator(mode="after")
+    def validate_cookie_and_cors_settings(self) -> "Settings":
+        origins = self.cors_allowed_origins_list()
+        if "*" in origins:
+            raise ValueError(
+                "CORS_ALLOWED_ORIGINS must list exact origins when credentials are enabled"
+            )
+
+        environment = self.APP_ENV.strip().lower()
+        if environment in {"production", "prod"} and not self.COOKIE_SECURE:
+            raise ValueError("production requires COOKIE_SECURE=true")
+
+        has_plain_http_localhost = any(
+            _is_plain_http_localhost_origin(origin) for origin in origins
+        )
+        if environment in {"development", "dev", "local"} and has_plain_http_localhost:
+            if self.COOKIE_SECURE:
+                raise ValueError(
+                    "plain HTTP localhost development requires COOKIE_SECURE=false"
+                )
+
+        return self
+
     def langgraph_postgres_uri(self) -> Optional[str]:
         """
         Connection string for LangGraph Postgres checkpointer (short-term / thread memory).
@@ -93,6 +116,15 @@ def _is_local_postgres_host(hostname: Optional[str]) -> bool:
         return True
     h = hostname.lower()
     return h in ("localhost", "127.0.0.1", "::1")
+
+
+def _is_plain_http_localhost_origin(origin: str) -> bool:
+    parsed = urlparse(origin)
+    return parsed.scheme == "http" and parsed.hostname in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
 
 
 def _with_langgraph_postgres_params(uri: str, *, sslmode_override: Optional[str]) -> str:

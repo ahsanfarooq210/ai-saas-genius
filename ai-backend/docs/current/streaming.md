@@ -21,6 +21,7 @@ The durable result remains available through checkpoint/session reads by `thread
 
 ```text
 POST /api/v1/swarm/run/stream       -> live progress events
+POST /api/v1/swarm/revise/stream    -> live progress events for a follow-up instruction
 POST /api/v1/swarm/resume/stream    -> live progress events for a resumed thread
 GET  /api/v1/swarm/state/{id}       -> checkpoint summary after/during the run
 GET  /api/v1/swarm/sessions/{id}    -> persisted graph-state, session, artifact, and debate metadata
@@ -75,6 +76,23 @@ Accept: text/event-stream
 ```
 
 Both endpoints return `text/event-stream`.
+
+### Revise and stream an existing architecture
+
+```http
+POST /api/v1/swarm/revise/stream
+Content-Type: application/json
+Accept: text/event-stream
+```
+
+```json
+{
+  "thread_id": "stream-001",
+  "instruction": "Replace the local cache with Redis."
+}
+```
+
+This starts a new revision turn; it is not checkpoint resume. It returns the same progress-only SSE contract and promotes the new result only after the graph succeeds.
 
 ---
 
@@ -176,6 +194,8 @@ Client disconnects raise `asyncio.CancelledError`; the service marks the session
 
 1. Marks an existing session `running` if it exists.
 2. Calls `_stream_graph(None, thread_id, db=db)`, matching existing resume semantics.
+
+`SwarmGraphService.stream_revise(...)` reserves a revision, constructs graph input from the latest successful app projection, then calls `_stream_graph(...)` with that state. Unknown threads fail before response streaming with `404`, and active threads fail with `409`.
 
 `_stream_graph(...)` calls the compiled LangGraph runtime:
 

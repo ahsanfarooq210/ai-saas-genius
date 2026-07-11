@@ -54,6 +54,7 @@ def _route(state: GlobalSwarmState) -> str:
 
     Gate order (happy path)
     -----------------------
+    0. Revision       — pending follow-up always returns to `architect_graph`
     1. Architecture   — `component_list` non-empty (filled by `architect_graph`)
     2. Documentation  — `docs_complete` is True (set by `doc_generator_graph`)
     3. Scalability    — `scalability_feedback` non-empty and not rejected
@@ -74,6 +75,9 @@ def _route(state: GlobalSwarmState) -> str:
 
     Return values map 1:1 to node names in `supervisor_graph.add_conditional_edges`.
     """
+    if state.get("revision_pending"):
+        return "architect_graph"
+
     if not state.get("component_list"):
         return "architect_graph"
 

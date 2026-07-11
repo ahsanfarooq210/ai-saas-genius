@@ -28,7 +28,8 @@ Read these in order if you are new to the backend:
 | 8 | [persistence/checkpointer-postgres-alembic.md](persistence/checkpointer-postgres-alembic.md) | external Postgres checkpointer and Alembic-managed app tables |
 | 9 | [persistence/session-data-flow.md](persistence/session-data-flow.md) | complete run/resume/session save and read flow |
 | 10 | [current/streaming.md](current/streaming.md) | live SSE progress streaming contract and implementation |
-| 11 | [architecture/plan.md](architecture/plan.md) | target / roadmap; not guaranteed to match live code |
+| 11 | [current/iterative-revisions.md](current/iterative-revisions.md) | applying follow-up prompts to an existing architecture thread |
+| 12 | [architecture/plan.md](architecture/plan.md) | target / roadmap; not guaranteed to match live code |
 
 **Deep dives (optional):**
 
@@ -41,6 +42,8 @@ Read these in order if you are new to the backend:
 
 **Recent change:**
 
+- [current/iterative-revisions.md](current/iterative-revisions.md) — live run/revise/resume contract and revision history APIs
+- [changes/2026-07-11-iterative-architecture-revisions.md](changes/2026-07-11-iterative-architecture-revisions.md) — implementation and rollback notes for follow-up architecture turns
 - [changes/2026-06-28-langfuse-tracing.md](changes/2026-06-28-langfuse-tracing.md) — change log and rollback notes for optional Langfuse tracing on swarm graph execution
 - [changes/2026-06-28-sync-db-threadpool-offload.md](changes/2026-06-28-sync-db-threadpool-offload.md) — change log and rollback notes for offloading sync SQLAlchemy persistence from async FastAPI call paths
 - [current/authentication.md](current/authentication.md) — live JWT signup/login/refresh and request authentication contract

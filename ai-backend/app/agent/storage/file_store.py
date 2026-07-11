@@ -53,12 +53,13 @@ class ArtifactStore:
         self,
         *,
         thread_id: str,
+        revision_number: int,
         iteration: int,
         diagram_type: str,
         content: str,
     ) -> StoredArtifact:
         storage_key = (
-            f"{self._folder}/{thread_id}/diagrams/"
+            f"{self._folder}/{thread_id}/revisions/{revision_number}/diagrams/"
             f"iter{iteration}_{diagram_type}.mmd"
         )
         return self._upload_text(storage_key=storage_key, content=content)
@@ -67,10 +68,14 @@ class ArtifactStore:
         self,
         *,
         thread_id: str,
+        revision_number: int,
         doc_filename: str,
         content: str,
     ) -> StoredArtifact:
-        storage_key = f"{self._folder}/{thread_id}/docs/{doc_filename}"
+        storage_key = (
+            f"{self._folder}/{thread_id}/revisions/{revision_number}/docs/"
+            f"{doc_filename}"
+        )
         return self._upload_text(storage_key=storage_key, content=content)
 
     def read_text(self, storage_key: str) -> str:

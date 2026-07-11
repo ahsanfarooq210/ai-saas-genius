@@ -1,6 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -32,6 +42,12 @@ class SwarmSession(Base):
     next_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
     scalability_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     security_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_revision: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -84,4 +100,36 @@ class SwarmSessionArtifact(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
+    )
+
+
+class SwarmRevision(Base):
+    __tablename__ = "swarm_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "thread_id",
+            "revision_number",
+            name="uq_swarm_revisions_thread_revision",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    thread_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("sessions.thread_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    instruction: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    result_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )

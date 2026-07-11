@@ -1,5 +1,6 @@
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -7,16 +8,19 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.v1.router import api_router
+from app.core.config import Settings
 from app.core.config import settings as app_settings
 from app.core.security import create_access_token, get_password_hash
 from app.db.base import Base
 from app.db.session import get_db
+from app.main import app as main_app
 from app.middleware.auth import JWTAuthMiddleware
 from app.models.user import User
 
-# TestClient talks to the app over plain HTTP; Secure cookies would be
-# silently dropped by the client, so disable Secure for this process only.
-app_settings.COOKIE_SECURE = False
+
+@pytest.fixture(autouse=True)
+def _local_http_cookie_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(app_settings, "COOKIE_SECURE", False)
 
 
 class FakeSwarmGraphService:
@@ -29,6 +33,15 @@ class FakeSwarmGraphService:
                 "supports_xray": True,
             }
         ]
+
+    async def stream_run(
+        self,
+        task_requirement: str,
+        thread_id: str,
+        *,
+        db: object | None = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        yield {"event": "done", "data": {"thread_id": thread_id, "status": "done"}}
 
 
 def _client() -> tuple[TestClient, sessionmaker[Session]]:
@@ -137,6 +150,43 @@ def test_login_alias_issues_tokens() -> None:
     assert response.json()["refresh_token"]
 
 
+def test_login_cookie_authenticates_me() -> None:
+    client, session_factory = _client()
+    _create_user(session_factory, "cookie-me@example.com")
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "cookie-me@example.com", "password": "valid-password"},
+    )
+    me = client.get("/api/v1/auth/me")
+
+    assert login.status_code == 200
+    assert me.status_code == 200
+    assert me.json()["email"] == "cookie-me@example.com"
+
+
+def test_login_cookie_authenticates_swarm_stream() -> None:
+    client, session_factory = _client()
+    _create_user(session_factory, "cookie-stream@example.com")
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "cookie-stream@example.com", "password": "valid-password"},
+    )
+
+    response = client.post(
+        "/api/v1/swarm/run/stream",
+        json={
+            "task_requirement": "Design a URL shortener",
+            "thread_id": "auth-cookie-test",
+        },
+    )
+
+    assert login.status_code == 200
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert 'event: done' in response.text
+
+
 def test_refresh_requires_refresh_token_type() -> None:
     client, _ = _client()
     signup = client.post(
@@ -162,7 +212,7 @@ def test_refresh_requires_refresh_token_type() -> None:
     assert accepted.json()["refresh_token"]
 
 
-def test_signup_sets_httponly_cookies_with_expected_flags() -> None:
+def test_development_cookies_omit_secure_and_keep_expected_flags() -> None:
     client, _ = _client()
 
     signup = client.post(
@@ -179,13 +229,34 @@ def test_signup_sets_httponly_cookies_with_expected_flags() -> None:
     access_header = next(h for h in set_cookie_headers if h.startswith("accessToken="))
     refresh_header = next(h for h in set_cookie_headers if h.startswith("refreshToken="))
     assert "HttpOnly" in access_header
+    assert "Secure" not in access_header
     assert "SameSite=lax" in access_header
     assert "Path=/" in access_header
 
     assert "HttpOnly" in refresh_header
+    assert "Secure" not in refresh_header
     assert "SameSite=strict" in refresh_header
     assert "Path=/api/v1/auth/refresh" in refresh_header
     assert not any(header.startswith("csrfToken=") for header in set_cookie_headers)
+
+
+def test_production_cookies_include_secure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(app_settings, "COOKIE_SECURE", True)
+    client, _ = _client()
+
+    signup = client.post(
+        "/api/v1/auth/signup",
+        json={"email": "secure-cookie@example.com", "password": "valid-password"},
+    )
+
+    set_cookie_headers = signup.headers.get_list("set-cookie")
+    access_header = next(h for h in set_cookie_headers if h.startswith("accessToken="))
+    refresh_header = next(h for h in set_cookie_headers if h.startswith("refreshToken="))
+    assert "HttpOnly" in access_header
+    assert "Secure" in access_header
+    assert "HttpOnly" in refresh_header
+    assert "Secure" in refresh_header
+
 
 def test_refresh_falls_back_to_cookie_when_body_omitted() -> None:
     client, _ = _client()
@@ -257,3 +328,69 @@ def test_swarm_routes_require_valid_bearer_token() -> None:
     assert missing_token.headers["WWW-Authenticate"] == "Bearer"
     assert authenticated.status_code == 200
     assert authenticated.json()["graphs"][0]["graph_id"] == "supervisor"
+
+
+def test_bearer_header_takes_precedence_over_access_cookie() -> None:
+    client, session_factory = _client()
+    _create_user(session_factory, "precedence@example.com")
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "precedence@example.com", "password": "valid-password"},
+    )
+
+    response = client.get(
+        "/api/v1/swarm/graphs",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert login.status_code == 200
+    assert response.status_code == 401
+
+
+def test_cors_allows_credentialed_local_frontend_preflight() -> None:
+    response = TestClient(main_app).options(
+        "/api/v1/swarm/run/stream",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_cors_does_not_allow_unapproved_origin() -> None:
+    response = TestClient(main_app).options(
+        "/api/v1/swarm/run/stream",
+        headers={
+            "Origin": "http://malicious.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_local_http_configuration_rejects_secure_cookies() -> None:
+    with pytest.raises(ValueError, match="COOKIE_SECURE=false"):
+        Settings(
+            APP_ENV="development",
+            COOKIE_SECURE=True,
+            CORS_ALLOWED_ORIGINS="http://localhost:5173",
+            _env_file=None,
+        )
+
+
+def test_production_configuration_rejects_insecure_cookies() -> None:
+    with pytest.raises(ValueError, match="production requires COOKIE_SECURE=true"):
+        Settings(
+            APP_ENV="production",
+            COOKIE_SECURE=False,
+            CORS_ALLOWED_ORIGINS="https://app.example.com",
+            _env_file=None,
+        )

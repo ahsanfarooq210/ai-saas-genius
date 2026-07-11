@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import Engine, inspect
 
 REQUIRED_APP_TABLES = frozenset(
-    {"users", "sessions", "debate_logs", "session_artifacts"}
+    {"users", "sessions", "debate_logs", "session_artifacts", "swarm_revisions"}
 )
 REQUIRED_TABLES_MISSING = "Database schema is not migrated for Phase 11."
 

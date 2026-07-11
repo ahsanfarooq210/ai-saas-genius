@@ -1,19 +1,21 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import './index.css'
-import App from './App.tsx'
-import { AuthProvider } from '@/features/auth/AuthProvider'
-import { ThemeProvider } from '@/features/theme/ThemeProvider'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import "./index.css";
+import App from "./App.tsx";
+import { AuthProvider } from "@/features/auth/AuthProvider";
+import { ThemeProvider } from "@/features/theme/ThemeProvider";
+import { Toaster } from "@/components/ui/sonner";
 
-createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
           <App />
+          <Toaster />
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
   </StrictMode>,
-)
+);

@@ -6,6 +6,9 @@ import operator
 
 class GlobalSwarmState(TypedDict):
     task_requirement: str  # the user's prompt — never mutated after init
+    revision_number: int  # 1 for the initial run; increments per follow-up turn
+    revision_instruction: str  # latest follow-up instruction; empty on initial run
+    revision_pending: bool  # forces the next supervisor pass through architect_graph
     architecture_draft: str  # plain text — placeholder until Phase 2
     architecture_json: (
         dict  # structured component map: {component: {description, relations}}
@@ -48,6 +51,9 @@ class ArchitectInternalState(TypedDict):
 
 class ArchitectGraphState(TypedDict):
     task_requirement: str
+    revision_number: int
+    revision_instruction: str
+    revision_pending: bool
     architecture_draft: str
     architecture_json: dict
     component_list: list[str]
@@ -83,6 +89,8 @@ class DiagramWorkerState(TypedDict):
     diagram_type: str  # "overview" | "component-api-gateway" | "auth-flow"
     component_slug: str  # slug this diagram is scoped to, "" for cross-cutting
     task_requirement: str  # passed down from GlobalSwarmState
+    revision_number: int
+    revision_instruction: str
     architecture_json: dict  # full context so worker generates accurately
     draft_mermaid: str  # scratchpad — worker writes here before linting
     linter_errors: list[str]  # errors from the linter on the last attempt
@@ -100,6 +108,9 @@ class DocEntry(TypedDict):
 
 class DocGraphState(TypedDict):
     task_requirement: str
+    revision_number: int
+    revision_instruction: str
+    revision_pending: bool
     architecture_draft: str
     architecture_json: dict
     component_list: list[str]
@@ -125,6 +136,8 @@ class DocWorkerState(TypedDict):
     doc_filename: str
     component_slug: str
     task_requirement: str
+    revision_number: int
+    revision_instruction: str
     architecture_json: dict
     generated_diagrams: list[DiagramEntry]
     thread_id: str

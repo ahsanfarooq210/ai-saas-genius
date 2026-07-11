@@ -7,12 +7,17 @@ from app.api.deps import get_swarm_graph_service
 from app.api.v1.endpoints import swarm
 from app.db.session import get_db
 from app.schemas.swarm import SwarmStreamProgressEvent
+from app.services.swarm_graph_service import (
+    SwarmSessionBusyError,
+    UnknownSwarmSessionError,
+)
 
 
 class FakeStreamingService:
     def __init__(self) -> None:
         self.run_calls: list[tuple[str, str, object]] = []
         self.resume_calls: list[tuple[str, object]] = []
+        self.revise_calls: list[tuple[str, str, object]] = []
 
     async def stream_run(self, task_requirement: str, thread_id: str, *, db=None):
         self.run_calls.append((task_requirement, thread_id, db))
@@ -45,6 +50,29 @@ class FakeStreamingService:
             },
         }
         yield {"event": "done", "data": {"thread_id": thread_id, "status": "done"}}
+
+    async def stream_revise(self, instruction: str, thread_id: str, *, db=None):
+        self.revise_calls.append((instruction, thread_id, db))
+
+        async def events():
+            yield {
+                "event": "progress",
+                "data": {
+                    "thread_id": thread_id,
+                    "type": "task_started",
+                    "node": "architect_graph",
+                    "phase": "architecture",
+                    "message": "Running architecture generation",
+                    "iteration_count": 1,
+                    "payload": {},
+                },
+            }
+            yield {
+                "event": "done",
+                "data": {"thread_id": thread_id, "status": "done"},
+            }
+
+        return events()
 
 
 def _app_with_service(service: FakeStreamingService) -> FastAPI:
@@ -351,3 +379,48 @@ def test_resume_stream_route_returns_sse_progress_and_done_events() -> None:
     assert 'data: {"thread_id":"thread-10","status":"done"}' in body
     assert service.resume_calls[0][0] == "thread-10"
     assert service.resume_calls[0][1] is not None
+
+
+def test_revise_stream_route_returns_sse_and_forwards_instruction() -> None:
+    service = FakeStreamingService()
+    client = TestClient(_app_with_service(service))
+
+    with client.stream(
+        "POST",
+        "/api/v1/swarm/revise/stream",
+        json={"thread_id": "thread-11", "instruction": "Use Redis"},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert '"node":"architect_graph"' in body
+    assert 'data: {"thread_id":"thread-11","status":"done"}' in body
+    assert service.revise_calls[0][0:2] == ("Use Redis", "thread-11")
+    assert service.revise_calls[0][2] is not None
+
+
+def test_revise_routes_validate_instruction_and_map_session_errors() -> None:
+    class ErrorService(FakeStreamingService):
+        async def revise(self, instruction: str, thread_id: str, *, db=None):
+            if thread_id == "missing":
+                raise UnknownSwarmSessionError(thread_id)
+            raise SwarmSessionBusyError(thread_id)
+
+    client = TestClient(_app_with_service(ErrorService()))
+
+    blank = client.post(
+        "/api/v1/swarm/revise",
+        json={"thread_id": "thread-1", "instruction": ""},
+    )
+    missing = client.post(
+        "/api/v1/swarm/revise",
+        json={"thread_id": "missing", "instruction": "Use Redis"},
+    )
+    busy = client.post(
+        "/api/v1/swarm/revise",
+        json={"thread_id": "thread-1", "instruction": "Use Redis"},
+    )
+
+    assert blank.status_code == 422
+    assert missing.status_code == 404
+    assert busy.status_code == 409

@@ -73,6 +73,8 @@ def build_checkpoint_payload(thread_id: str, snapshot: Any) -> dict[str, Any]:
 
     return {
         "thread_id": thread_id,
+        "revision_number": int(values.get("revision_number") or 1),
+        "latest_instruction": values.get("revision_instruction") or "",
         "next": snapshot.next or (),
         "component_list": values.get("component_list") or [],
         "complexity_score": values.get("complexity_score") or 0,

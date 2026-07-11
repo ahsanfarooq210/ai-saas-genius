@@ -33,12 +33,15 @@ def test_upload_diagram_returns_deterministic_storage_key_and_url(
 
     artifact = store.upload_diagram(
         thread_id="thread-1",
+        revision_number=2,
         iteration=2,
         diagram_type="overview",
         content="flowchart TD\n  A[a]",
     )
 
-    assert artifact.storage_key == "swarm-artifacts/thread-1/diagrams/iter2_overview.mmd"
+    assert artifact.storage_key == (
+        "swarm-artifacts/thread-1/revisions/2/diagrams/iter2_overview.mmd"
+    )
     assert artifact.url == "https://cdn.example/thread-1/overview.mmd"
     assert mock_config.called
 
@@ -55,11 +58,14 @@ def test_upload_doc_returns_deterministic_storage_key_and_url(
 
     artifact = store.upload_doc(
         thread_id="thread-1",
+        revision_number=2,
         doc_filename="overview.md",
         content="# Overview",
     )
 
-    assert artifact.storage_key == "swarm-artifacts/thread-1/docs/overview.md"
+    assert artifact.storage_key == (
+        "swarm-artifacts/thread-1/revisions/2/docs/overview.md"
+    )
     assert artifact.url == "https://cdn.example/thread-1/overview.md"
 
 
@@ -101,6 +107,7 @@ def test_upload_failure_surfaces_cloudinary_error(
     with pytest.raises(httpx.HTTPError, match="upload failed"):
         store.upload_doc(
             thread_id="thread-1",
+            revision_number=1,
             doc_filename="overview.md",
             content="# Overview",
         )

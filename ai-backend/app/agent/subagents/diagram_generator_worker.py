@@ -64,7 +64,9 @@ class DiagramGenerator:
             f"Generate a Mermaid diagram for: {diagram_type}\n\n"
             f"Architecture components: {list(state['architecture_json'].keys())}\n\n"
             f"Architecture details:\n{state['architecture_json']}\n\n"
-            f"System requirement: {state['task_requirement']}"
+            f"System requirement: {state['task_requirement']}\n\n"
+            "Latest revision instruction: "
+            f"{state.get('revision_instruction') or '(initial generation)'}"
         )
 
         messages: list[dict[str, str]] = [
@@ -86,6 +88,7 @@ class DiagramGenerator:
                 )
                 stored = artifact_store.upload_diagram(
                     thread_id=state["thread_id"],
+                    revision_number=state.get("revision_number", 1),
                     iteration=state["iteration"],
                     diagram_type=state["diagram_type"],
                     content=diagram_text,

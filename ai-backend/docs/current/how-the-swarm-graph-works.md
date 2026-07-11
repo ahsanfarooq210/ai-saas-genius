@@ -19,7 +19,7 @@ A client sends a **system design requirement** (natural language). The backend r
 - Many **Markdown documents** (`generated_docs`) persisted to Cloudinary with public URLs in state
 - Optional **reviewer feedback** and `debate_logs` when scalability/security nodes run
 
-The same `thread_id` can **resume** a checkpointed run via the API.
+The same `thread_id` can **resume** an interrupted checkpoint or **revise** the latest successful architecture with a new instruction.
 
 ---
 
@@ -92,13 +92,14 @@ START → supervisor_node → [conditional] → architect_graph | doc_generator_
 
 | Order | Condition | Next node |
 |-------|-----------|-----------|
-| 1 | `component_list` empty | `architect_graph` |
-| 2 | `docs_complete` is false | `doc_generator_graph` |
-| 3 | `scalability_feedback` contains `REJECTED` | `architect_graph` |
-| 4 | `scalability_feedback` empty | `scalability_node` |
-| 5 | `security_feedback` contains `REJECTED` | `architect_graph` |
-| 6 | `security_feedback` empty | `security_node` |
-| 7 | else | `END` |
+| 1 | `revision_pending` is true | `architect_graph` |
+| 2 | `component_list` empty | `architect_graph` |
+| 3 | `docs_complete` is false | `doc_generator_graph` |
+| 4 | `scalability_feedback` contains `REJECTED` | `architect_graph` |
+| 5 | `scalability_feedback` empty | `scalability_node` |
+| 6 | `security_feedback` contains `REJECTED` | `architect_graph` |
+| 7 | `security_feedback` empty | `security_node` |
+| 8 | else | `END` |
 
 **Iteration cap:** `supervisor_node` increments `iteration_count` each lap. The **fifth** supervisor pass still routes normally; the circuit breaker forces `END` only once `iteration_count > 5` (`MAX_ITERATIONS`). This lets a rejection-driven architect rerun reach the doc phase instead of ending with cleared docs.
 
@@ -127,7 +128,7 @@ START → prepare_architect_artifacts_node
 
 2. **`draft_architecture_node`** ([`lead_architect.py`](../../app/agent/subagents/lead_architect.py))  
    LLM structured output → `architecture_json`, `component_list`, `current_architecture_mermaid`.  
-   If revising after reviewer rejection, injects prior feedback and clears reviewer string fields.
+   For a user revision, receives the original requirement, complete current architecture, and new instruction; unaffected decisions must be preserved. For reviewer reruns, it also injects rejection feedback.
 
 3. **`score_complexity_node`** ([`comlexity_analyzer.py`](../../app/agent/subagents/comlexity_analyzer.py))  
    Sets `complexity_score`, `diagram_plan`, `doc_plan` (used later by doc subgraph).
@@ -228,7 +229,7 @@ Streaming does not change graph topology. `SwarmGraphService` calls LangGraph `a
 | Diagrams | `diagram_type`, `component_slug`, `storage_key`, `url`, `iteration` | [`artifact_store.upload_diagram`](../../app/agent/storage/file_store.py) → Cloudinary raw `.mmd` |
 | Docs | `title`, `component_slug`, `storage_key`, `url` | [`artifact_store.upload_doc`](../../app/agent/storage/file_store.py) → Cloudinary raw `.md` |
 
-Cloudinary keys embed `thread_id` (e.g. `{folder}/{thread_id}/diagrams/iter{n}_{type}.mmd`) so concurrent runs do not collide. Mermaid source and Markdown body are **not** duplicated in checkpoint state — agents and the API use `url` for delivery.
+Cloudinary keys embed both `thread_id` and `revision_number` (e.g. `{folder}/{thread_id}/revisions/{revision}/diagrams/iter{n}_{type}.mmd`) so historical versions do not overwrite one another. Mermaid source and Markdown body are **not** duplicated in checkpoint state — agents and the API use `url` for delivery.
 
 ---
 
@@ -253,10 +254,14 @@ Doc workers look for a paired diagram with [`_find_paired_diagram`](../../app/ag
 |--------|------|---------|
 | `POST` | `/api/v1/swarm/run` | New run with `task_requirement` + `thread_id` |
 | `POST` | `/api/v1/swarm/run/stream` | New run with SSE progress events |
+| `POST` | `/api/v1/swarm/revise` | Apply an instruction to the latest successful architecture |
+| `POST` | `/api/v1/swarm/revise/stream` | Apply a revision with SSE progress events |
 | `POST` | `/api/v1/swarm/resume` | Continue checkpointed thread |
 | `POST` | `/api/v1/swarm/resume/stream` | Continue checkpointed thread with SSE progress events |
 | `GET` | `/api/v1/swarm/state/{thread_id}` | Checkpoint summary |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}` | App `sessions` row + persisted graph-state projection, artifacts, and debate logs |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions` | Revision history metadata |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions/{revision_number}` | Stored result for one revision |
 | `GET` | `/api/v1/swarm/graphs` | List compiled graph ids (`supervisor`, `architect`, `doc_generator`) |
 | `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` | Mermaid topology from [`graph_mermaid.py`](../../app/agent/graph_mermaid.py) |
 | `GET` | `/health` | Health check |

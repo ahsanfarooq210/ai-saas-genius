@@ -9,7 +9,7 @@ The backend uses the same Postgres database for two different responsibilities:
 | Responsibility | Owner | What it stores |
 |----------------|-------|----------------|
 | Graph execution checkpoints | LangGraph `AsyncPostgresSaver` | checkpoint snapshots, pending execution metadata, resumable thread state |
-| App data | SQLAlchemy models + Alembic | users, swarm sessions, artifacts, debate logs, final result projection |
+| App data | SQLAlchemy models + Alembic | users, swarm sessions, artifacts, debate logs, revision history, final result projection |
 
 These are intentionally separate. LangGraph tables are internal runtime infrastructure. App tables are the public backend data model.
 
@@ -69,6 +69,7 @@ Current migration chain:
   -> 001_initial_swarm_persistence
   -> 002_add_session_artifacts
   -> 003_add_session_graph_state
+  -> 004_add_swarm_revisions
 ```
 
 App tables:
@@ -76,9 +77,10 @@ App tables:
 | Table | Created/updated by |
 |-------|--------------------|
 | `users` | `7ff644cccf7c_initial_users.py` |
-| `sessions` | `001_initial_swarm_persistence.py`, `003_add_session_graph_state.py` |
+| `sessions` | `001_initial_swarm_persistence.py`, `003_add_session_graph_state.py`, `004_add_swarm_revisions.py` |
 | `debate_logs` | `001_initial_swarm_persistence.py` |
 | `session_artifacts` | `002_add_session_artifacts.py` |
+| `swarm_revisions` | `004_add_swarm_revisions.py` |
 
 Run migrations before starting the API:
 
@@ -116,7 +118,7 @@ Requests pass a thread config into LangGraph:
 {"configurable": {"thread_id": thread_id}}
 ```
 
-That `thread_id` is the checkpoint lineage. A blocking run starts from an initial state. A resume starts from `None`, which tells LangGraph to continue from the checkpoint for that thread.
+That `thread_id` is the checkpoint lineage. A blocking run starts from an initial state. A revision starts a new execution using the latest successful app projection plus a follow-up instruction. A resume starts from `None`, which tells LangGraph to continue from the checkpoint for that thread.
 
 Streaming uses the same config with `astream(...)`, then reads the final checkpoint snapshot with `aget_state(...)` before finalizing app tables.
 
@@ -146,4 +148,3 @@ For an external Postgres database:
 - [session-data-flow.md](session-data-flow.md)
 - [`../graphs/overview.md`](../graphs/overview.md)
 - [`../current/phase-11-postgres-persistence.md`](../current/phase-11-postgres-persistence.md)
-

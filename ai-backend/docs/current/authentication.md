@@ -238,4 +238,10 @@ JWT and cookie/CORS behavior is configured in `app/core/config.py`:
 | `COOKIE_SECURE` | `Secure` flag on both cookies; default `true`, set `false` for local plain-HTTP dev |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated exact frontend origin(s) allowed for credentialed CORS |
 
+For local HTTP development, `.env` must contain `COOKIE_SECURE=false` and
+`CORS_ALLOWED_ORIGINS=http://localhost:5173`. Startup rejects `Secure` cookies
+with a plain HTTP localhost development origin because browsers silently drop
+that combination. Production startup rejects `COOKIE_SECURE=false`, and
+credentialed CORS rejects wildcard origins.
+
 Use non-default secrets in any deployed environment.
