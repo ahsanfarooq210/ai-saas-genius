@@ -9,7 +9,9 @@ import type {
   SwarmRevisionListResponse,
   SwarmRunRequest,
   SwarmRunResponse,
+  SwarmSessionListResponse,
   SwarmSessionResponse,
+  SwarmSessionSummary,
 } from "./swarm.types";
 
 const SWARM_BASE_PATH = "/api/v1/swarm";
@@ -71,6 +73,18 @@ export async function getSwarmSession(
     options,
   );
   return data;
+}
+
+export async function listSwarmSessions(
+  options?: RequestOptions,
+): Promise<SwarmSessionListResponse> {
+  const { data } = await apiClient.get<
+    SwarmSessionListResponse | SwarmSessionSummary[]
+  >(`${SWARM_BASE_PATH}/sessions`, options);
+
+  // Accept a bare list as well as the documented response envelope so the UI
+  // remains compatible with FastAPI list response models.
+  return Array.isArray(data) ? { sessions: data } : data;
 }
 
 export async function listSwarmRevisions(

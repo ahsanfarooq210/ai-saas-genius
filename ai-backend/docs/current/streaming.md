@@ -245,6 +245,7 @@ Run with curl:
 
 ```bash
 curl -N -X POST http://localhost:8000/api/v1/swarm/run/stream \
+  -H "Authorization: Bearer <access-token>" \
   -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \
   -d '{"task_requirement":"Design a URL shortener with analytics","thread_id":"curl-stream-001"}'
@@ -253,8 +254,10 @@ curl -N -X POST http://localhost:8000/api/v1/swarm/run/stream \
 After `event: done`, fetch state/session data:
 
 ```bash
-curl http://localhost:8000/api/v1/swarm/state/curl-stream-001
-curl http://localhost:8000/api/v1/swarm/sessions/curl-stream-001
+curl http://localhost:8000/api/v1/swarm/state/curl-stream-001 \
+  -H "Authorization: Bearer <access-token>"
+curl http://localhost:8000/api/v1/swarm/sessions/curl-stream-001 \
+  -H "Authorization: Bearer <access-token>"
 ```
 
 `/sessions/{thread_id}` is the durable app-table result read. It includes the final graph-state projection mirrored into the `sessions` row, including architecture fields, plans, reviewer feedback, supervisor state, final artifact rows, and debate logs. It intentionally reads from app tables, not directly from the live SSE stream.

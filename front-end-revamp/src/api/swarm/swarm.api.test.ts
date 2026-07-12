@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { post } = vi.hoisted(() => ({ post: vi.fn() }));
-vi.mock("../client", () => ({ apiClient: { post, get: vi.fn() } }));
+const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+vi.mock("../client", () => ({ apiClient: { post, get } }));
 
-import { resumeSwarmRun, reviseSwarmRun, startSwarmRun } from "./swarm.api";
+import {
+  listSwarmSessions,
+  resumeSwarmRun,
+  reviseSwarmRun,
+  startSwarmRun,
+} from "./swarm.api";
 
 describe("blocking swarm request contracts", () => {
   beforeEach(() => post.mockReset().mockResolvedValue({ data: {} }));
@@ -30,5 +35,23 @@ describe("blocking swarm request contracts", () => {
       { thread_id: "t1" },
       undefined,
     );
+  });
+});
+
+describe("session list contract", () => {
+  beforeEach(() => get.mockReset());
+
+  it("fetches all sessions from the collection endpoint", async () => {
+    get.mockResolvedValue({ data: { sessions: [] } });
+
+    await expect(listSwarmSessions()).resolves.toEqual({ sessions: [] });
+    expect(get).toHaveBeenCalledWith("/api/v1/swarm/sessions", undefined);
+  });
+
+  it("normalizes a bare FastAPI list response", async () => {
+    const sessions = [{ thread_id: "thread-1" }];
+    get.mockResolvedValue({ data: sessions });
+
+    await expect(listSwarmSessions()).resolves.toEqual({ sessions });
   });
 });

@@ -129,6 +129,7 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 | `POST` | `/api/v1/auth/login` |
 | `POST` | `/api/v1/auth/signin` |
 | `POST` | `/api/v1/auth/refresh` |
+| `POST` | `/api/v1/auth/logout` |
 | `GET` | `/api/v1/auth/me` |
 | `POST` | `/api/v1/swarm/run` |
 | `POST` | `/api/v1/swarm/run/stream` |
@@ -137,6 +138,7 @@ Do **not** put `operator.add` on artifact fields in `GlobalSwarmState`. See [sta
 | `POST` | `/api/v1/swarm/resume` |
 | `POST` | `/api/v1/swarm/resume/stream` |
 | `GET` | `/api/v1/swarm/state/{thread_id}` |
+| `GET` | `/api/v1/swarm/sessions` |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}` |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions` |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions/{revision_number}` |
@@ -150,7 +152,7 @@ Graph introspection is backed by [`app/agent/graph_mermaid.py`](../../app/agent/
 
 For login, signup, refresh, and authenticated request examples, see [authentication.md](authentication.md).
 
-`/api/v1/swarm/sessions/{thread_id}` is the app-table result view. It returns the `sessions` row plus persisted final graph fields (`architecture_json`, `component_list`, Mermaid summary, plans, reviewer feedback, supervisor state), final artifact rows, and mirrored debate logs. `/api/v1/swarm/state/{thread_id}` remains the checkpoint-backed state view.
+`/api/v1/swarm/sessions` returns newest-first summaries owned by the authenticated user. `/api/v1/swarm/sessions/{thread_id}` is the app-table result view. It returns the owned `sessions` row plus persisted final graph fields (`architecture_json`, `component_list`, Mermaid summary, plans, reviewer feedback, supervisor state), final artifact rows, and mirrored debate logs. `/api/v1/swarm/state/{thread_id}` remains the checkpoint-backed state view. Missing threads and threads owned by another user are both exposed as `404`.
 
 For the full persistence flow, see [../persistence/session-data-flow.md](../persistence/session-data-flow.md).
 For follow-up request examples and version semantics, see [iterative-revisions.md](iterative-revisions.md).
@@ -194,6 +196,7 @@ LLM prompts, model names, token usage, and nested graph observations are capture
 - Iterative follow-up revisions with latest-successful promotion and history
 - Session-table final graph-state projection for durable result reads
 - JWT signup/login/signin/refresh/me endpoints and protected `/api/v1/swarm/*` routes
+- User-owned swarm sessions, an authenticated session-list endpoint, and `404` masking for cross-user thread access
 - Optional Langfuse tracing for swarm run/resume/stream operations
 
 **On disk but not in active graph:**

@@ -44,12 +44,14 @@ def test_phase11_migration_chains_after_existing_users_revision() -> None:
     artifact_revision = script.get_revision("002_add_session_artifacts")
     graph_state_revision = script.get_revision("003_add_session_graph_state")
     revisions_revision = script.get_revision("004_add_swarm_revisions")
+    ownership_revision = script.get_revision("005_add_session_ownership")
 
     assert existing_users_revision is not None
     assert phase11_revision.down_revision == "7ff644cccf7c"
     assert artifact_revision.down_revision == "001_initial_swarm_persistence"
     assert graph_state_revision.down_revision == "002_add_session_artifacts"
     assert revisions_revision.down_revision == "003_add_session_graph_state"
+    assert ownership_revision.down_revision == "004_add_swarm_revisions"
 
 
 def test_required_app_table_validation_reports_missing_tables() -> None:

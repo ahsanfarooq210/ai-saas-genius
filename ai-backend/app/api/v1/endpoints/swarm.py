@@ -7,8 +7,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import SwarmGraphServiceDep
+from app.api.deps import SwarmGraphServiceDep, get_current_user
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.swarm import (
     SwarmCheckpointResponse,
     SwarmGraphListResponse,
@@ -19,6 +20,7 @@ from app.schemas.swarm import (
     SwarmResumeRequest,
     SwarmRunRequest,
     SwarmRunResponse,
+    SwarmSessionListResponse,
     SwarmSessionResponse,
 )
 from app.services.swarm_graph_service import (
@@ -61,8 +63,17 @@ async def run_swarm_graph(
     body: SwarmRunRequest,
     service: SwarmGraphServiceDep,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SwarmRunResponse:
-    result = await service.run(body.task_requirement, body.thread_id, db=db)
+    try:
+        result = await service.run(
+            body.task_requirement, body.thread_id, db=db, user_id=current_user.id
+        )
+    except UnknownSwarmSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown thread_id: {body.thread_id}",
+        ) from None
     return SwarmRunResponse.model_validate(result)
 
 
@@ -71,9 +82,28 @@ async def stream_swarm_graph(
     body: SwarmRunRequest,
     service: SwarmGraphServiceDep,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
+    try:
+        await run_in_threadpool(
+            service.ensure_session_access,
+            db,
+            body.thread_id,
+            current_user.id,
+            allow_missing=True,
+        )
+    except UnknownSwarmSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown thread_id: {body.thread_id}",
+        ) from None
     return _streaming_response(
-        service.stream_run(body.task_requirement, body.thread_id, db=db)
+        service.stream_run(
+            body.task_requirement,
+            body.thread_id,
+            db=db,
+            user_id=current_user.id,
+        )
     )
 
 
@@ -82,8 +112,15 @@ async def resume_swarm_graph(
     body: SwarmResumeRequest,
     service: SwarmGraphServiceDep,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SwarmRunResponse:
-    result = await service.resume(body.thread_id, db=db)
+    try:
+        result = await service.resume(body.thread_id, db=db, user_id=current_user.id)
+    except UnknownSwarmSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown thread_id: {body.thread_id}",
+        ) from None
     return SwarmRunResponse.model_validate(result)
 
 
@@ -92,8 +129,23 @@ async def stream_resume_swarm_graph(
     body: SwarmResumeRequest,
     service: SwarmGraphServiceDep,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
-    return _streaming_response(service.stream_resume(body.thread_id, db=db))
+    try:
+        await run_in_threadpool(
+            service.ensure_session_access,
+            db,
+            body.thread_id,
+            current_user.id,
+        )
+    except UnknownSwarmSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown thread_id: {body.thread_id}",
+        ) from None
+    return _streaming_response(
+        service.stream_resume(body.thread_id, db=db, user_id=current_user.id)
+    )
 
 
 @router.post("/revise", response_model=SwarmRunResponse)
@@ -101,9 +153,15 @@ async def revise_swarm_graph(
     body: SwarmReviseRequest,
     service: SwarmGraphServiceDep,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SwarmRunResponse:
     try:
-        result = await service.revise(body.instruction, body.thread_id, db=db)
+        result = await service.revise(
+            body.instruction,
+            body.thread_id,
+            db=db,
+            user_id=current_user.id,
+        )
     except UnknownSwarmSessionError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -122,12 +180,14 @@ async def stream_revise_swarm_graph(
     body: SwarmReviseRequest,
     service: SwarmGraphServiceDep,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     try:
         events = await service.stream_revise(
             body.instruction,
             body.thread_id,
             db=db,
+            user_id=current_user.id,
         )
     except UnknownSwarmSessionError:
         raise HTTPException(
@@ -146,9 +206,42 @@ async def stream_revise_swarm_graph(
 async def get_swarm_checkpoint(
     thread_id: str,
     service: SwarmGraphServiceDep,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SwarmCheckpointResponse:
-    snapshot = await service.get_checkpoint(thread_id)
+    try:
+        snapshot = await service.get_checkpoint(
+            thread_id, db=db, user_id=current_user.id
+        )
+    except UnknownSwarmSessionError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown thread_id: {thread_id}",
+        ) from None
     return SwarmCheckpointResponse.model_validate(snapshot)
+
+
+@router.get(
+    "/sessions",
+    response_model=SwarmSessionListResponse,
+    summary="List the authenticated user's swarm sessions",
+    response_description="A newest-first page of sessions owned by the current user",
+)
+async def list_swarm_sessions(
+    service: SwarmGraphServiceDep,
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SwarmSessionListResponse:
+    payload = await run_in_threadpool(
+        service.list_sessions,
+        db,
+        current_user.id,
+        limit=limit,
+        offset=offset,
+    )
+    return SwarmSessionListResponse.model_validate(payload)
 
 
 @router.get("/sessions/{thread_id}", response_model=SwarmSessionResponse)
@@ -156,9 +249,12 @@ async def get_swarm_session(
     thread_id: str,
     service: SwarmGraphServiceDep,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SwarmSessionResponse:
     try:
-        session_payload = await run_in_threadpool(service.get_session, thread_id, db)
+        session_payload = await run_in_threadpool(
+            service.get_session, thread_id, db, current_user.id
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -175,9 +271,12 @@ async def list_swarm_revisions(
     thread_id: str,
     service: SwarmGraphServiceDep,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SwarmRevisionListResponse:
     try:
-        payload = await run_in_threadpool(service.list_revisions, thread_id, db)
+        payload = await run_in_threadpool(
+            service.list_revisions, thread_id, db, current_user.id
+        )
     except UnknownSwarmSessionError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -195,6 +294,7 @@ async def get_swarm_revision(
     revision_number: int,
     service: SwarmGraphServiceDep,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SwarmRevisionResponse:
     try:
         payload = await run_in_threadpool(
@@ -202,6 +302,7 @@ async def get_swarm_revision(
             thread_id,
             revision_number,
             db,
+            current_user.id,
         )
     except UnknownSwarmSessionError:
         raise HTTPException(

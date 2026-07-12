@@ -2,6 +2,8 @@
 
 This section explains the live LangGraph runtime from the code that is currently wired.
 
+If you are new to the codebase, read the handbook's [How the swarm works](../handbook/03-how-the-swarm-works.md) and [State and data flow](../handbook/04-state-and-data-flow.md) first. This folder is the more exact topology reference.
+
 Read in this order:
 
 1. [overview.md](overview.md) - how the parent graph, subgraphs, service, API, checkpoints, and app tables work together.

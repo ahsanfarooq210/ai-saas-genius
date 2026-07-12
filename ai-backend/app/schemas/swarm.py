@@ -146,6 +146,22 @@ class SwarmSessionResponse(BaseModel):
     generated_docs: list[SessionArtifactResponse] = Field(default_factory=list)
 
 
+class SwarmSessionSummary(BaseModel):
+    thread_id: str
+    requirement: str
+    revision_number: int = 0
+    status: str
+    complexity: int | None = None
+    diagram_count: int | None = None
+    doc_count: int | None = None
+    created_at: str | None = None
+    completed_at: str | None = None
+
+
+class SwarmSessionListResponse(BaseModel):
+    sessions: list[SwarmSessionSummary] = Field(default_factory=list)
+
+
 class SwarmRevisionSummary(BaseModel):
     revision_number: int
     instruction: str

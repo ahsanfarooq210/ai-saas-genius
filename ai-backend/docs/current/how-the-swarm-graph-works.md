@@ -259,6 +259,7 @@ Doc workers look for a paired diagram with [`_find_paired_diagram`](../../app/ag
 | `POST` | `/api/v1/swarm/resume` | Continue checkpointed thread |
 | `POST` | `/api/v1/swarm/resume/stream` | Continue checkpointed thread with SSE progress events |
 | `GET` | `/api/v1/swarm/state/{thread_id}` | Checkpoint summary |
+| `GET` | `/api/v1/swarm/sessions` | Newest-first session summaries owned by the authenticated user |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}` | App `sessions` row + persisted graph-state projection, artifacts, and debate logs |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions` | Revision history metadata |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions/{revision_number}` | Stored result for one revision |
@@ -301,5 +302,5 @@ See [project-state.md](project-state.md) for an up-to-date gap list.
 | [state-merge-and-artifacts.md](../flows/state-merge-and-artifacts.md) | Reducers, duplicates, resets |
 | [swarm-graph-overview.md](../flows/swarm-graph-overview.md) | Full topology tables, dependency diagram |
 | [phase-7-flow.md](../flows/phase-7-flow.md) | Diagram `Send`, lint loop |
-| [phase-8-flow.md](phase-8-flow.md) | Doc `Send`, Cloudinary artifacts |
+| [`../flows/phase-8-flow.md`](../flows/phase-8-flow.md) | Doc `Send`, Cloudinary artifacts |
 | [architecture/plan.md](../architecture/plan.md) | Target design (roadmap) |

@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 import {
+  ArrowsClockwise,
+  CheckCircle,
   Lightning,
   Play,
   ShieldCheck,
@@ -30,6 +32,15 @@ import {
   saveRecentProject,
 } from "@/features/projects/project-storage";
 import { DashboardShell } from "@/screens/dashboard/DashboardShell";
+
+const phaseLabels: Record<SwarmProgressEvent["phase"], string> = {
+  supervisor: "Planning",
+  architecture: "Architecture",
+  diagram: "Diagrams",
+  documentation: "Documentation",
+  review: "Review",
+  unknown: "Processing",
+};
 
 export function NewArchitectureScreen() {
   const navigate = useNavigate();
@@ -181,16 +192,6 @@ export function NewArchitectureScreen() {
                   </Button>
                 )}
               </div>
-              {events.length > 0 && (
-                <ol className="max-h-48 space-y-2 overflow-y-auto border border-border bg-muted/30 p-3 text-xs">
-                  {events.map((event, index) => (
-                    <li key={`${event.node}-${index}`}>
-                      <span className="font-medium">{event.phase}</span> ·{" "}
-                      {event.message}
-                    </li>
-                  ))}
-                </ol>
-              )}
             </CardContent>
           </Card>
           <div className="space-y-4">
@@ -223,6 +224,69 @@ export function NewArchitectureScreen() {
             </Card>
           </div>
         </div>
+        {(isRunning || events.length > 0) && (
+          <Card
+            aria-live="polite"
+            aria-label="Architecture generation activity"
+          >
+            <CardHeader className="border-b border-border">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    {isRunning ? (
+                      <ArrowsClockwise className="size-4 animate-spin text-primary" />
+                    ) : (
+                      <CheckCircle className="size-4 text-emerald-500" />
+                    )}
+                    Live activity
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    {events.at(-1)?.message ??
+                      "Connecting to the architecture team…"}
+                  </CardDescription>
+                </div>
+                <Badge variant="outline">
+                  {events.length > 0
+                    ? phaseLabels[events.at(-1)?.phase ?? "unknown"]
+                    : "Connecting"}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {events.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Waiting for the first update from the backend…
+                </p>
+              ) : (
+                <ol className="max-h-72 space-y-3 overflow-y-auto">
+                  {events.map((event, index) => (
+                    <li
+                      key={`${event.node}-${event.type}-${index}`}
+                      className="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-3"
+                    >
+                      <span className="mt-1 flex size-5 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-[10px] font-medium text-primary">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 border-b border-border pb-3 last:border-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-medium">
+                            {phaseLabels[event.phase]}
+                          </span>
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {event.node}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {event.message}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </DashboardShell>
   );

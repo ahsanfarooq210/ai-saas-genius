@@ -70,6 +70,7 @@ Current migration chain:
   -> 002_add_session_artifacts
   -> 003_add_session_graph_state
   -> 004_add_swarm_revisions
+  -> 005_add_session_ownership
 ```
 
 App tables:
@@ -77,7 +78,7 @@ App tables:
 | Table | Created/updated by |
 |-------|--------------------|
 | `users` | `7ff644cccf7c_initial_users.py` |
-| `sessions` | `001_initial_swarm_persistence.py`, `003_add_session_graph_state.py`, `004_add_swarm_revisions.py` |
+| `sessions` | `001_initial_swarm_persistence.py`, `003_add_session_graph_state.py`, `004_add_swarm_revisions.py`, `005_add_session_ownership.py` |
 | `debate_logs` | `001_initial_swarm_persistence.py` |
 | `session_artifacts` | `002_add_session_artifacts.py` |
 | `swarm_revisions` | `004_add_swarm_revisions.py` |
@@ -119,6 +120,8 @@ Requests pass a thread config into LangGraph:
 ```
 
 That `thread_id` is the checkpoint lineage. A blocking run starts from an initial state. A revision starts a new execution using the latest successful app projection plus a follow-up instruction. A resume starts from `None`, which tells LangGraph to continue from the checkpoint for that thread.
+
+The checkpointer does not enforce user ownership. Before calling `aget_state`, resume, or revision operations, the service verifies the authenticated user against `sessions.user_id`. Missing and cross-user threads are both exposed as `404`.
 
 Streaming uses the same config with `astream(...)`, then reads the final checkpoint snapshot with `aget_state(...)` before finalizing app tables.
 

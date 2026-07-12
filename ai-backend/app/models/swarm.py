@@ -5,6 +5,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Index,
     JSON,
     String,
     Text,
@@ -18,8 +19,16 @@ from app.db.base import Base
 
 class SwarmSession(Base):
     __tablename__ = "sessions"
+    __table_args__ = (
+        Index("ix_sessions_user_id_created_at", "user_id", "created_at"),
+    )
 
     thread_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     requirement: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
         String(20),

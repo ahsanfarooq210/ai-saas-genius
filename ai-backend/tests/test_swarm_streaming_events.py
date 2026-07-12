@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from langgraph.types import Overwrite
 
 from app.agent.streaming import normalize_stream_chunk
-from app.api.deps import get_swarm_graph_service
+from app.api.deps import get_current_user, get_swarm_graph_service
 from app.api.v1.endpoints import swarm
 from app.db.session import get_db
 from app.schemas.swarm import SwarmStreamProgressEvent
@@ -19,7 +19,13 @@ class FakeStreamingService:
         self.resume_calls: list[tuple[str, object]] = []
         self.revise_calls: list[tuple[str, str, object]] = []
 
-    async def stream_run(self, task_requirement: str, thread_id: str, *, db=None):
+    @staticmethod
+    def ensure_session_access(*args, **kwargs) -> None:
+        return None
+
+    async def stream_run(
+        self, task_requirement: str, thread_id: str, *, db=None, user_id=None
+    ):
         self.run_calls.append((task_requirement, thread_id, db))
         yield {
             "event": "progress",
@@ -35,7 +41,7 @@ class FakeStreamingService:
         }
         yield {"event": "done", "data": {"thread_id": thread_id, "status": "done"}}
 
-    async def stream_resume(self, thread_id: str, *, db=None):
+    async def stream_resume(self, thread_id: str, *, db=None, user_id=None):
         self.resume_calls.append((thread_id, db))
         yield {
             "event": "progress",
@@ -51,7 +57,9 @@ class FakeStreamingService:
         }
         yield {"event": "done", "data": {"thread_id": thread_id, "status": "done"}}
 
-    async def stream_revise(self, instruction: str, thread_id: str, *, db=None):
+    async def stream_revise(
+        self, instruction: str, thread_id: str, *, db=None, user_id=None
+    ):
         self.revise_calls.append((instruction, thread_id, db))
 
         async def events():
@@ -83,6 +91,9 @@ def _app_with_service(service: FakeStreamingService) -> FastAPI:
         yield object()
 
     app.dependency_overrides[get_swarm_graph_service] = lambda: service
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "CurrentUser", (), {"id": 1}
+    )()
     app.dependency_overrides[get_db] = override_db
     return app
 
@@ -401,7 +412,9 @@ def test_revise_stream_route_returns_sse_and_forwards_instruction() -> None:
 
 def test_revise_routes_validate_instruction_and_map_session_errors() -> None:
     class ErrorService(FakeStreamingService):
-        async def revise(self, instruction: str, thread_id: str, *, db=None):
+        async def revise(
+            self, instruction: str, thread_id: str, *, db=None, user_id=None
+        ):
             if thread_id == "missing":
                 raise UnknownSwarmSessionError(thread_id)
             raise SwarmSessionBusyError(thread_id)

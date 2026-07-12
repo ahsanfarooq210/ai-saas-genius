@@ -28,6 +28,22 @@ All non-auth `/api/v1/*` routes are protected by JWT middleware. For this servic
 
 `GET /health`, OpenAPI docs, and `/api/v1/auth/*` are public, except `/api/v1/auth/me`.
 
+## Thread ownership
+
+Authentication alone does not grant access to every swarm thread. New session
+rows store the authenticated user in `sessions.user_id`, and thread-specific
+operations verify that owner before reading checkpoint state, returning
+session/revision data, resuming, revising, or reusing a `thread_id`.
+
+`GET /api/v1/swarm/sessions` filters by the current user. A missing thread, a
+legacy session with no owner, and another user's thread all return `404` from
+thread-specific endpoints so the API does not reveal whether a foreign thread
+exists. Child tables inherit their access boundary through
+`sessions.thread_id`; they do not duplicate `user_id`.
+
+See [../handbook/07-authentication-and-ownership.md](../handbook/07-authentication-and-ownership.md)
+for the complete request and service flow.
+
 ---
 
 ## Cookies (primary transport)

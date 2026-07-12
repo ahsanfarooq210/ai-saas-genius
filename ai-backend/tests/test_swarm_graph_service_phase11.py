@@ -167,7 +167,9 @@ def test_run_creates_and_finalizes_swarm_session_with_debate_logs() -> None:
     )
     service = SwarmGraphService(graph)
 
-    asyncio.run(service.run("Design a URL shortener", "thread-4", db=db))
+    asyncio.run(
+        service.run("Design a URL shortener", "thread-4", db=db, user_id=1)
+    )
 
     session = db.get(SwarmSession, "thread-4")
     logs = db.query(SwarmDebateLog).filter_by(thread_id="thread-4").all()
@@ -210,7 +212,9 @@ def test_run_marks_swarm_session_failed_when_graph_raises() -> None:
     service = SwarmGraphService(graph)
 
     try:
-        asyncio.run(service.run("Design a URL shortener", "thread-5", db=db))
+        asyncio.run(
+            service.run("Design a URL shortener", "thread-5", db=db, user_id=1)
+        )
     except RuntimeError as exc:
         assert str(exc) == "graph failed"
     else:
@@ -227,6 +231,7 @@ def test_resume_updates_existing_swarm_session_from_graph_result() -> None:
     db.add(
         SwarmSession(
             thread_id="thread-6",
+            user_id=1,
             requirement="Design a URL shortener",
             status="running",
         )
@@ -250,7 +255,7 @@ def test_resume_updates_existing_swarm_session_from_graph_result() -> None:
     )
     service = SwarmGraphService(graph)
 
-    asyncio.run(service.resume("thread-6", db=db))
+    asyncio.run(service.resume("thread-6", db=db, user_id=1))
 
     session = db.get(SwarmSession, "thread-6")
     assert session is not None
@@ -265,6 +270,7 @@ def test_get_session_returns_sql_summary_and_artifact_urls() -> None:
     db.add(
         SwarmSession(
             thread_id="thread-7",
+            user_id=1,
             requirement="Design a URL shortener",
             status="done",
             complexity=5,
@@ -321,7 +327,7 @@ def test_get_session_returns_sql_summary_and_artifact_urls() -> None:
     db.commit()
     service = SwarmGraphService(FakeAsyncGraph())
 
-    payload = service.get_session("thread-7", db)
+    payload = service.get_session("thread-7", db, user_id=1)
 
     assert payload["thread_id"] == "thread-7"
     assert payload["status"] == "done"

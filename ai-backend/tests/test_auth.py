@@ -24,6 +24,10 @@ def _local_http_cookie_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class FakeSwarmGraphService:
+    @staticmethod
+    def ensure_session_access(*args, **kwargs) -> None:
+        return None
+
     def list_graphs(self) -> list[dict[str, str | bool]]:
         return [
             {
@@ -40,6 +44,7 @@ class FakeSwarmGraphService:
         thread_id: str,
         *,
         db: object | None = None,
+        user_id: int | None = None,
     ) -> AsyncIterator[dict[str, object]]:
         yield {"event": "done", "data": {"thread_id": thread_id, "status": "done"}}
 

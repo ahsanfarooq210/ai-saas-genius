@@ -73,6 +73,7 @@ class SwarmGraphService:
         thread_id: str,
         *,
         db: Session | None = None,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         with swarm_trace(
             "swarm.run",
@@ -85,6 +86,7 @@ class SwarmGraphService:
                     db,
                     thread_id,
                     task_requirement,
+                    user_id,
                 )
             try:
                 result = await self._graph.ainvoke(
@@ -110,7 +112,10 @@ class SwarmGraphService:
         thread_id: str,
         *,
         db: Session | None = None,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
+        if db is not None:
+            await run_in_threadpool(self._get_owned_session, db, thread_id, user_id)
         with swarm_trace("swarm.resume", thread_id) as trace:
             try:
                 result = await self._graph.ainvoke(
@@ -137,12 +142,14 @@ class SwarmGraphService:
         thread_id: str,
         *,
         db: Session,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         revision_input, revision_number = await run_in_threadpool(
             self._start_revision,
             db,
             thread_id,
             instruction,
+            user_id,
         )
         with swarm_trace(
             "swarm.revise",
@@ -179,6 +186,7 @@ class SwarmGraphService:
         thread_id: str,
         *,
         db: Session | None = None,
+        user_id: int | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         if db is not None:
             await run_in_threadpool(
@@ -186,6 +194,7 @@ class SwarmGraphService:
                 db,
                 thread_id,
                 task_requirement,
+                user_id,
             )
         async for event in self._stream_graph(
             _empty_swarm_state(task_requirement, thread_id),
@@ -201,8 +210,10 @@ class SwarmGraphService:
         thread_id: str,
         *,
         db: Session | None = None,
+        user_id: int | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         if db is not None:
+            await run_in_threadpool(self._get_owned_session, db, thread_id, user_id)
             await run_in_threadpool(
                 self._mark_session_resume_running,
                 db,
@@ -222,12 +233,14 @@ class SwarmGraphService:
         thread_id: str,
         *,
         db: Session,
+        user_id: int | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         revision_input, revision_number = await run_in_threadpool(
             self._start_revision,
             db,
             thread_id,
             instruction,
+            user_id,
         )
         return self._stream_graph(
             revision_input,
@@ -238,14 +251,25 @@ class SwarmGraphService:
             revision_number=revision_number,
         )
 
-    async def get_checkpoint(self, thread_id: str) -> dict[str, Any]:
+    async def get_checkpoint(
+        self,
+        thread_id: str,
+        *,
+        db: Session | None = None,
+        user_id: int | None = None,
+    ) -> dict[str, Any]:
+        if db is not None:
+            await run_in_threadpool(self._get_owned_session, db, thread_id, user_id)
         snapshot = await self._graph.aget_state(swarm_config(thread_id))
         return build_checkpoint_payload(thread_id, snapshot)
 
-    def get_session(self, thread_id: str, db: Session) -> dict[str, Any]:
-        session = db.get(SwarmSession, thread_id)
-        if session is None:
-            raise ValueError(f"Unknown thread_id: {thread_id}")
+    def get_session(
+        self,
+        thread_id: str,
+        db: Session,
+        user_id: int | None = None,
+    ) -> dict[str, Any]:
+        session = self._get_owned_session(db, thread_id, user_id)
 
         artifacts = (
             db.query(SwarmSessionArtifact)
@@ -337,10 +361,64 @@ class SwarmGraphService:
             "generated_docs": docs,
         }
 
-    def list_revisions(self, thread_id: str, db: Session) -> dict[str, Any]:
+    @staticmethod
+    def list_sessions(
+        db: Session,
+        user_id: int,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        sessions = (
+            db.query(SwarmSession)
+            .filter(SwarmSession.user_id == user_id)
+            .order_by(SwarmSession.created_at.desc(), SwarmSession.thread_id)
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+        return {
+            "sessions": [
+                {
+                    "thread_id": session.thread_id,
+                    "requirement": session.requirement,
+                    "revision_number": session.current_revision,
+                    "status": session.status,
+                    "complexity": session.complexity,
+                    "diagram_count": session.diagram_count,
+                    "doc_count": session.doc_count,
+                    "created_at": (
+                        session.created_at.isoformat() if session.created_at else None
+                    ),
+                    "completed_at": (
+                        session.completed_at.isoformat()
+                        if session.completed_at
+                        else None
+                    ),
+                }
+                for session in sessions
+            ]
+        }
+
+    @classmethod
+    def ensure_session_access(
+        cls,
+        db: Session,
+        thread_id: str,
+        user_id: int,
+        *,
+        allow_missing: bool = False,
+    ) -> None:
         session = db.get(SwarmSession, thread_id)
-        if session is None:
+        if session is None and allow_missing:
+            return
+        if session is None or session.user_id != user_id:
             raise UnknownSwarmSessionError(thread_id)
+
+    def list_revisions(
+        self, thread_id: str, db: Session, user_id: int | None = None
+    ) -> dict[str, Any]:
+        session = self._get_owned_session(db, thread_id, user_id)
         self._ensure_baseline_revision(db, session)
         db.commit()
         revisions = (
@@ -360,10 +438,9 @@ class SwarmGraphService:
         thread_id: str,
         revision_number: int,
         db: Session,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
-        session = db.get(SwarmSession, thread_id)
-        if session is None:
-            raise UnknownSwarmSessionError(thread_id)
+        session = self._get_owned_session(db, thread_id, user_id)
         self._ensure_baseline_revision(db, session)
         db.commit()
         revision = (
@@ -603,7 +680,10 @@ class SwarmGraphService:
         db: Session,
         thread_id: str,
         instruction: str,
+        user_id: int | None = None,
     ) -> tuple[GlobalSwarmState, int]:
+        if user_id is None:
+            raise ValueError("user_id is required for persisted swarm revisions")
         session = (
             db.query(SwarmSession)
             .filter(SwarmSession.thread_id == thread_id)
@@ -611,6 +691,8 @@ class SwarmGraphService:
             .one_or_none()
         )
         if session is None or session.current_revision <= 0:
+            raise UnknownSwarmSessionError(thread_id)
+        if user_id is not None and session.user_id != user_id:
             raise UnknownSwarmSessionError(thread_id)
         if session.status == "running":
             raise SwarmSessionBusyError(thread_id)
@@ -655,20 +737,41 @@ class SwarmGraphService:
         db: Session,
         thread_id: str,
         task_requirement: str,
+        user_id: int | None = None,
     ) -> None:
+        if user_id is None:
+            raise ValueError("user_id is required for persisted swarm sessions")
         session = db.get(SwarmSession, thread_id)
         if session is None:
             session = SwarmSession(
                 thread_id=thread_id,
+                user_id=user_id,
                 requirement=task_requirement,
                 status="running",
             )
             db.add(session)
         else:
+            if user_id is not None and session.user_id != user_id:
+                raise UnknownSwarmSessionError(thread_id)
             session.requirement = task_requirement
             session.status = "running"
             session.completed_at = None
         db.commit()
+
+    @staticmethod
+    def _get_owned_session(
+        db: Session,
+        thread_id: str,
+        user_id: int | None,
+    ) -> SwarmSession:
+        if user_id is None:
+            raise ValueError("user_id is required for persisted swarm sessions")
+        query = db.query(SwarmSession).filter(SwarmSession.thread_id == thread_id)
+        query = query.filter(SwarmSession.user_id == user_id)
+        session = query.one_or_none()
+        if session is None:
+            raise UnknownSwarmSessionError(thread_id)
+        return session
 
     @staticmethod
     def _mark_session_resume_running(db: Session, thread_id: str) -> None:

@@ -138,13 +138,17 @@ GET /api/v1/swarm/state/{thread_id}
   -> build_checkpoint_payload() shapes response fields
 ```
 
-The HTTP paths did not change:
+The current persistence-related HTTP paths are:
 
 | Method | Path |
 |--------|------|
 | `POST` | `/api/v1/swarm/run` |
 | `POST` | `/api/v1/swarm/resume` |
 | `GET` | `/api/v1/swarm/state/{thread_id}` |
+| `GET` | `/api/v1/swarm/sessions` |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}` |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions` |
+| `GET` | `/api/v1/swarm/sessions/{thread_id}/revisions/{revision_number}` |
 | `GET` | `/api/v1/swarm/graphs` |
 | `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` |
 
@@ -163,6 +167,7 @@ This table tracks one user-facing swarm run per `thread_id`.
 | Column | Meaning |
 |--------|---------|
 | `thread_id` | Primary key; same value used in LangGraph checkpoint config |
+| `user_id` | Nullable foreign key to `users.id`; authorization owner for all new sessions |
 | `requirement` | Original design requirement from `/swarm/run` |
 | `status` | `running`, `done`, or `failed` |
 | `complexity` | Final `complexity_score` from graph state |
@@ -193,6 +198,16 @@ Run behavior:
 | `/swarm/resume` succeeds | Update existing row from returned graph state |
 
 The service commits the `running` row before awaiting the graph. That matters because the graph can take a long time; if the process dies mid-run after this point, the app table still records a started run.
+
+All API-created rows require an authenticated `user_id`. Migration
+`005_add_session_ownership.py` leaves the database column nullable only because
+older rows predate ownership and cannot be assigned safely. Those legacy rows
+are hidden from authenticated reads. The composite
+`(user_id, created_at)` index supports the newest-first session-list query.
+
+Child tables do not repeat `user_id`. Their `thread_id` foreign key identifies
+the parent session, and authorization is checked against `sessions.user_id`
+before child artifacts, debate logs, revisions, or checkpoint state are read.
 
 ### `debate_logs`
 

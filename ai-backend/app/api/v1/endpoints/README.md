@@ -97,6 +97,7 @@ the cookie flow remains valid until it naturally expires even after logout.
 | `POST` | `/api/v1/swarm/resume` | Resume an existing checkpoint and wait for final state | Full final graph state |
 | `POST` | `/api/v1/swarm/resume/stream` | Resume an existing checkpoint with progress events | SSE progress events only |
 | `GET` | `/api/v1/swarm/state/{thread_id}` | Read current LangGraph checkpoint summary | Checkpoint summary |
+| `GET` | `/api/v1/swarm/sessions` | List sessions owned by the authenticated user | Newest-first session summaries |
 | `GET` | `/api/v1/swarm/sessions/{thread_id}` | Read persisted app session and artifact metadata | Durable session result |
 | `GET` | `/api/v1/swarm/graphs` | List graph topology IDs available for rendering | Graph list |
 | `GET` | `/api/v1/swarm/graphs/{graph_id}/mermaid` | Render one graph topology as Mermaid source | Mermaid text |
@@ -688,6 +689,43 @@ Notes:
 - `generated_diagram_count`, `generated_doc_count`, and `debate_log_count` are
   convenient counters for UI summaries.
 
+## Session list
+
+```http
+GET /api/v1/swarm/sessions?limit=100&offset=0
+Authorization: Bearer <access_token>
+```
+
+Purpose:
+
+- Lists only sessions owned by the authenticated user.
+- Returns lightweight project summaries rather than full architecture and
+  artifact payloads.
+- Orders sessions newest first.
+- Supports offset pagination with `limit` from `1` to `100` and `offset` at
+  least `0`.
+- Does not expose sessions created before ownership tracking was introduced.
+
+Success response:
+
+```ts
+type SwarmSessionListResponse = {
+  sessions: SwarmSessionSummary[];
+};
+
+type SwarmSessionSummary = {
+  thread_id: string;
+  requirement: string;
+  revision_number: number;
+  status: string;
+  complexity: number | null;
+  diagram_count: number | null;
+  doc_count: number | null;
+  created_at: string | null;
+  completed_at: string | null;
+};
+```
+
 ## Persisted session
 
 ```http
@@ -702,6 +740,7 @@ Purpose:
 - Returns final graph-state projection, reviewer debate logs, and persisted
   artifact metadata.
 - This is the preferred final read after streaming completes.
+- Returns `404` when the session does not exist or belongs to another user.
 
 Success response:
 
@@ -827,6 +866,9 @@ async function getCurrentUser(): Promise<UserResponse>;
 async function startSwarmRun(input: SwarmRunRequest): Promise<SwarmRunResponse>;
 async function resumeSwarmRun(input: SwarmResumeRequest): Promise<SwarmRunResponse>;
 async function getSwarmState(threadId: string): Promise<SwarmCheckpointResponse>;
+async function listSwarmSessions(
+  options?: { limit?: number; offset?: number },
+): Promise<SwarmSessionListResponse>;
 async function getSwarmSession(threadId: string): Promise<SwarmSessionResponse>;
 async function listSwarmGraphs(): Promise<SwarmGraphListResponse>;
 async function getSwarmGraphMermaid(

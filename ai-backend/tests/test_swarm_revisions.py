@@ -15,7 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.agent.subagents._schema import ArchitectureOutput
 from app.agent.subagents.lead_architect import LeadArchitect
-from app.api.deps import get_swarm_graph_service
+from app.api.deps import get_current_user, get_swarm_graph_service
 from app.api.v1.endpoints import swarm
 from app.db.base import Base
 from app.db.session import get_db
@@ -109,12 +109,15 @@ def test_revision_builds_on_latest_result_and_promotes_new_version() -> None:
     graph = RevisionGraph()
     service = SwarmGraphService(graph)
 
-    asyncio.run(service.run("Design a URL shortener", "thread-1", db=db))
+    asyncio.run(
+        service.run("Design a URL shortener", "thread-1", db=db, user_id=1)
+    )
     result = asyncio.run(
         service.revise(
             "Replace the cache with Redis and explain failover",
             "thread-1",
             db=db,
+            user_id=1,
         )
     )
 
@@ -144,11 +147,11 @@ def test_revision_builds_on_latest_result_and_promotes_new_version() -> None:
         "swarm-artifacts/thread-1/revisions/2/docs/overview.md",
     }
 
-    history = service.list_revisions("thread-1", db)
+    history = service.list_revisions("thread-1", db, user_id=1)
     assert history["current_revision"] == 2
     assert [item["status"] for item in history["revisions"]] == ["done", "done"]
-    first = service.get_revision("thread-1", 1, db)
-    second = service.get_revision("thread-1", 2, db)
+    first = service.get_revision("thread-1", 1, db, user_id=1)
+    second = service.get_revision("thread-1", 2, db, user_id=1)
     assert "Redis" not in first["result"]["architecture_json"]
     assert "Redis" in second["result"]["architecture_json"]
 
@@ -157,18 +160,20 @@ def test_failed_revision_does_not_replace_last_successful_result() -> None:
     db = _session()
     graph = RevisionGraph()
     service = SwarmGraphService(graph)
-    asyncio.run(service.run("Design a URL shortener", "thread-1", db=db))
+    asyncio.run(
+        service.run("Design a URL shortener", "thread-1", db=db, user_id=1)
+    )
     graph.fail_next = True
 
     with pytest.raises(RuntimeError, match="revision failed"):
-        asyncio.run(service.revise("Use Redis", "thread-1", db=db))
+        asyncio.run(service.revise("Use Redis", "thread-1", db=db, user_id=1))
 
     session = db.get(SwarmSession, "thread-1")
     assert session is not None
     assert session.current_revision == 1
     assert session.status == "failed"
     assert "Redis" not in (session.architecture_json or {})
-    failed = service.get_revision("thread-1", 2, db)
+    failed = service.get_revision("thread-1", 2, db, user_id=1)
     assert failed["status"] == "failed"
     assert failed["result"] == {}
     artifacts = db.query(SwarmSessionArtifact).filter_by(thread_id="thread-1").all()
@@ -180,11 +185,12 @@ def test_revision_rejects_unknown_and_running_threads() -> None:
     service = SwarmGraphService(RevisionGraph())
 
     with pytest.raises(UnknownSwarmSessionError):
-        asyncio.run(service.revise("Use Redis", "missing", db=db))
+        asyncio.run(service.revise("Use Redis", "missing", db=db, user_id=1))
 
     db.add(
         SwarmSession(
             thread_id="thread-1",
+            user_id=1,
             requirement="Design a URL shortener",
             status="running",
             current_revision=1,
@@ -192,19 +198,24 @@ def test_revision_rejects_unknown_and_running_threads() -> None:
     )
     db.commit()
     with pytest.raises(SwarmSessionBusyError):
-        asyncio.run(service.revise("Use Redis", "thread-1", db=db))
+        asyncio.run(service.revise("Use Redis", "thread-1", db=db, user_id=1))
 
 
 def test_revision_history_endpoints_return_versioned_results() -> None:
     db = _session()
     graph = RevisionGraph()
     service = SwarmGraphService(graph)
-    asyncio.run(service.run("Design a URL shortener", "thread-1", db=db))
-    asyncio.run(service.revise("Use Redis", "thread-1", db=db))
+    asyncio.run(
+        service.run("Design a URL shortener", "thread-1", db=db, user_id=1)
+    )
+    asyncio.run(service.revise("Use Redis", "thread-1", db=db, user_id=1))
 
     app = FastAPI()
     app.include_router(swarm.router, prefix="/api/v1")
     app.dependency_overrides[get_swarm_graph_service] = lambda: service
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "CurrentUser", (), {"id": 1}
+    )()
 
     def override_db():
         yield db

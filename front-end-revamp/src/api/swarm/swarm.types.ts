@@ -115,6 +115,22 @@ export type SwarmSessionResponse = {
   generated_docs: Artifact[];
 };
 
+export type SwarmSessionSummary = {
+  thread_id: string;
+  requirement: string;
+  revision_number: number;
+  status: string;
+  complexity: number | null;
+  diagram_count: number | null;
+  doc_count: number | null;
+  created_at: string | null;
+  completed_at: string | null;
+};
+
+export type SwarmSessionListResponse = {
+  sessions: SwarmSessionSummary[];
+};
+
 export type SwarmRevisionStatus = "running" | "done" | "failed";
 export type SwarmRevisionSummary = {
   revision_number: number;

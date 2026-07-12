@@ -8,7 +8,7 @@ The user-facing session result and its revision history are stored across four a
 
 | Table | Purpose |
 |-------|---------|
-| `sessions` | one row per `thread_id`; run status, counts, final graph-state projection |
+| `sessions` | one row per `thread_id`; authenticated owner, run status, counts, final graph-state projection |
 | `session_artifacts` | final generated diagram/doc artifact metadata |
 | `debate_logs` | final reviewer feedback entries |
 | `swarm_revisions` | per-version instruction, status, timestamps, and complete successful result state |
@@ -19,7 +19,7 @@ Raw Mermaid and Markdown content is stored in the artifact store. The database s
 
 `sessions` stores:
 
-- identity and status: `thread_id`, `requirement`, `status`, `current_revision`, `created_at`, `completed_at`
+- identity and status: `thread_id`, `user_id`, `requirement`, `status`, `current_revision`, `created_at`, `completed_at`
 - counts: `complexity`, `diagram_count`, `doc_count`
 - architecture result: `architecture_draft`, `architecture_json`, `component_list`, `current_architecture_mermaid`
 - plans: `diagram_plan`, `doc_plan`
@@ -41,9 +41,9 @@ Flow:
 
 ```text
 swarm.py
-  -> service.run(task_requirement, thread_id, db)
+  -> service.run(task_requirement, thread_id, db, user_id)
        -> _mark_session_running(...)
-            -> insert/update sessions row as running
+            -> insert/update the owned sessions row as running
             -> commit
        -> graph.ainvoke(empty_swarm_state, swarm_config(thread_id))
        -> _mark_session_done(...)
@@ -80,7 +80,8 @@ Flow:
 
 ```text
 swarm.py
-  -> service.stream_run(task_requirement, thread_id, db)
+  -> verify a missing thread is available or an existing thread is owned
+  -> service.stream_run(task_requirement, thread_id, db, user_id)
        -> _mark_session_running(...)
        -> graph.astream(empty_swarm_state, stream_mode=["tasks", "updates"], subgraphs=True)
             -> normalize chunks
@@ -100,7 +101,7 @@ If the stream fails, the service logs the backend traceback, marks the session f
 
 ## Revision flow
 
-`POST /api/v1/swarm/revise` and `/revise/stream` reserve the next revision number under a session-row lock. The service rejects unknown sessions and sessions already marked `running`.
+`POST /api/v1/swarm/revise` and `/revise/stream` reserve the next revision number under a session-row lock. The service rejects unknown/non-owned sessions and sessions already marked `running`.
 
 The new graph input is built from the latest successful session/artifact/debate projection. It keeps the original requirement and existing architecture but resets supervisor completion and reviewer state, then forces the first route through `architect_graph` with `revision_pending=true`.
 
@@ -118,7 +119,8 @@ Flow:
 
 ```text
 swarm.py
-  -> service.resume(thread_id, db)
+  -> service.resume(thread_id, db, user_id)
+       -> verify sessions.user_id ownership
        -> graph.ainvoke(None, swarm_config(thread_id))
        -> _mark_session_done(result)
        -> return final graph result
@@ -140,7 +142,8 @@ Flow:
 
 ```text
 swarm.py
-  -> service.stream_resume(thread_id, db)
+  -> verify sessions.user_id ownership
+  -> service.stream_resume(thread_id, db, user_id)
        -> _mark_session_resume_running(...)
        -> graph.astream(None, swarm_config(thread_id), ...)
        -> graph.aget_state(...)
@@ -148,7 +151,7 @@ swarm.py
        -> yield SSE done event
 ```
 
-If the session row already exists, streaming resume marks it `running` before graph execution. If the row does not exist, the graph may still resume from LangGraph checkpoint state, but there is no app session row to update.
+Streaming resume requires an owned app session row and marks it `running` before graph execution. Checkpoint state is not exposed when the authorization source (`sessions.user_id`) is missing or belongs to another user.
 
 ## Finalization details
 
@@ -186,8 +189,8 @@ Flow:
 
 ```text
 swarm.py
-  -> service.get_session(thread_id, db)
-       -> load sessions row
+  -> service.get_session(thread_id, db, user_id)
+       -> load sessions row filtered by owner
        -> load session_artifacts rows
        -> split artifacts into generated_diagrams/generated_docs
        -> load debate_logs rows
@@ -195,7 +198,9 @@ swarm.py
   -> SwarmSessionResponse.model_validate(...)
 ```
 
-If the session row is missing, the API returns `404`.
+If the session row is missing or belongs to another user, the API returns `404`.
+
+`GET /api/v1/swarm/sessions?limit=&offset=` filters by the authenticated `user_id` and returns newest-first summary rows. Legacy rows with `user_id = NULL` are intentionally absent from authenticated lists.
 
 ## Difference from checkpoint state
 
@@ -209,7 +214,7 @@ Use `/state` for checkpoint/runtime inspection. Use `/sessions` for final result
 
 Migration `003_add_session_graph_state.py` adds nullable graph-state columns to `sessions`. Migration `004_add_swarm_revisions.py` adds `current_revision` and revision history.
 
-Existing completed rows are marked as revision 1. Their full baseline revision snapshot is lazily materialized from the current app-table projection when history or the first revision is requested.
+Existing completed rows are marked as revision 1. Their full baseline revision snapshot is lazily materialized from the current app-table projection when history or the first revision is requested. Migration `005_add_session_ownership.py` adds nullable ownership; legacy `NULL` owners are not assigned automatically.
 
 ## Related docs
 

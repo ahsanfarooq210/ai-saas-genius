@@ -150,7 +150,11 @@ def test_stream_run_finalizes_session_from_checkpoint_snapshot() -> None:
     service = SwarmGraphService(graph)
 
     events = asyncio.run(
-        _collect(service.stream_run("Design a URL shortener", "thread-3", db=db))
+        _collect(
+            service.stream_run(
+                "Design a URL shortener", "thread-3", db=db, user_id=1
+            )
+        )
     )
 
     assert graph.aget_state_calls == [{"configurable": {"thread_id": "thread-3"}}]
@@ -176,7 +180,11 @@ def test_stream_run_marks_failed_logs_and_emits_error_when_graph_raises(caplog) 
     caplog.set_level(logging.ERROR, logger="app.services.swarm_graph_service")
 
     events = asyncio.run(
-        _collect(service.stream_run("Design a URL shortener", "thread-4", db=db))
+        _collect(
+            service.stream_run(
+                "Design a URL shortener", "thread-4", db=db, user_id=1
+            )
+        )
     )
 
     assert events == [
